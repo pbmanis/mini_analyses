@@ -11,6 +11,9 @@ import scipy.signal
 import numpy.random
 import matplotlib.pyplot as mpl
 import digital_filters as dfilt
+from lmfit import Model
+from scipy.optimize import curve_fit
+
 
 class ClementsBekkers():
     def __init__(self):
@@ -254,7 +257,55 @@ class AndradeJonas(object):
             apeak = np.mean(self.data[self.peaks[-1]-3:self.peaks[-1]+3])
             amp = self.sign*apeak - self.sign*abase
             self.amplitudes.extend([amp])
-        
+        self.average_events()
+#        self.fit_average_event()
+
+    def average_events(self):
+        # compute average event with length of template
+        tdur = 50.
+        tpre = 5.
+        self.avgnpts = int((tpre+tdur)/self.dt)+1
+        npts = self.avgnpts
+        npre = int(tpre/self.dt)
+        avg = np.zeros(self.avgnpts)
+#        print ('original: ', len(self.onsets), self.avgnpts)
+        self.allevents = np.zeros((len(self.onsets), self.avgnpts))
+        nev = 0  # count accepted events
+        for j, i in enumerate(self.onsets):
+            if (i + npts) < len(self.data) and (i - npre) >= 0:
+                self.allevents[j,:] = self.data[i-npre:i+self.avgnpts-npre]
+                avg = avg + self.data[i-npre:i+self.avgnpts-npre]
+                nev = nev + 1
+        if nev < len(self.onsets):
+            self.allevents = self.allevents[0:nev, :]
+#        print('final: ', self.allevents.shape)
+        avg = avg/nev
+        ttb = np.arange(-tpre, tdur+self.dt, self.dt)
+        self.avgeventtb = ttb
+        self.avgevent = avg
+        self.tpre = tpre
+
+    def doubleexp(self, x, A, tau_1, tau_2, dc):
+        tm = A * (-np.exp(-x/tau_1) + np.exp((-x/tau_2))) + dc
+        return tm
+    
+    def fit_average_event(self):
+        tsel = np.argwhere(self.avgeventtb > self.tpre)  # only fit data in event, not baseline
+        tsel = np.min(tsel)
+        self.fittsel = tsel
+        init_vals = [-10., 0.5, 4., 0.]
+        best_vals, covar = curve_fit(self.doubleexp, self.avgeventtb[tsel:], self.avgevent[tsel:], p0=init_vals)
+#        print ('best vals: ', best_vals)
+        self.fitresult = best_vals
+        self.best_fit = self.doubleexp(self.avgeventtb[tsel:], best_vals[0], best_vals[1], best_vals[2], best_vals[3])
+        # lmfit version - fails for odd reason
+        # dexpmodel = Model(self.doubleexp)
+        # params = dexpmodel.make_params(A=-10., tau_1=0.5, tau_2=4.0, dc=0.)
+        # self.fitresult = dexpmodel.fit(self.avgevent[tsel:], params, x=self.avgeventtb[tsel:])
+        # print(self.fitresult.fit_report())
+        self.tau1 = best_vals[1]
+        self.tau2 = best_vals[2]
+
     def plots(self, events=None):
         data = self.data
         dt = self.dt
@@ -277,23 +328,12 @@ class AndradeJonas(object):
         if events is not None:  # original events
             ax[1].plot(tb[:self.quot.shape[0]][events], self.quot[events], 'ro', markersize=5.)
 
-        # compute average event with length of template
-        tdur = 50.
-        tpre = 5.
-        npts = int((tpre+tdur)/dt)+1
-        npre = int(tpre/dt)
-        avg = np.zeros(npts)
-        nev = 0  # count events
 
-        for i in self.onsets:
-            if (i + npts) < len(data) and (i - npre) >= 0:
-                avg = avg + data[i-npre:i+npts-npre]
-                nev = nev + 1
-        avg = avg/nev
-        ttb = np.arange(-tpre, tdur+dt, dt)
-        ax[2].plot(ttb, avg)
-        maxa = np.max(self.sign*avg)
-        ax[2].plot(ttb+tpre, self.template[0:npts]*maxa/self.template_max, 'r-')
+
+        ax[2].plot(self.avgeventtb, self.avgevent)
+        maxa = np.max(self.sign*self.avgevent)
+        ax[2].plot(self.avgeventtb+self.tpre, self.template[0:self.avgnpts]*maxa/self.template_max, 'r-')
+#        ax[2].plot(self.avgeventtb[self.fittsel:], self.best_fit, 'g--')
         mpl.show()
 
 def moving_average(a, n=3) :

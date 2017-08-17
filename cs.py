@@ -10,6 +10,7 @@ import minis_methods as minis
 import numpy as np
 import matplotlib.pyplot as mpl
 import scipy.signal
+from scipy.optimize import curve_fit
 
 basedatadir = '/Volumes/Pegasus/ManisLab_Data3/Sullivan_Chelsea/miniIPSCs'
 
@@ -35,7 +36,7 @@ datasets = {'m1a': {'dir': '2017.04.25_000/slice_000/cell_002', 'prots': [7], 't
             # m9b: protocols 0 and 2 have noise, not acceptable; 1 is ok
             'm9b': {'dir': '2017.07.19_000/slice_000/cell_001', 'prots': [1], 'thr': 1.75, 'rt': 0.35, 'decay': 5., 'G': 'F/+'},
             'm9c': {'dir': '2017.07.19_000/slice_000/cell_002', 'prots': [0,1,2], 'thr': 1.5, 'rt': 0.35, 'decay': 5., 'G': 'F/+'},
-            # incomple data for m9d:
+            # incomple data for m9d11:
             # 'm9d': {'dir': '2017.07.19_000/slice_000/cell_003', 'prots': [0], 'thr': 1.75, 'rt': 0.35, 'decay': 5., 'G': 'F/+'},
             # m10a: runs 1 & 2 have unacceptable noise
             'm10a': {'dir': '2017.07.27_000/slice_000/cell_000', 'prots': [0], 'thr': 2.0, 'rt': 0.35, 'decay': 5., 'G': 'F/F'},
@@ -44,93 +45,195 @@ datasets = {'m1a': {'dir': '2017.04.25_000/slice_000/cell_002', 'prots': [7], 't
             # m10c, run 2: suspicious bursts 
             'm10d': {'dir': '2017.07.27_000/slice_000/cell_003', 'prots': [0,1,2], 'thr': 1.5, 'rt': 0.35, 'decay': 4., 'G': 'F/F'},
             'm10e': {'dir': '2017.07.27_000/slice_000/cell_004', 'prots': [1], 'thr': 1.5, 'rt': 0.35, 'decay': 4., 'G': 'F/F'},
-
+#
+#  more:
+#
+            'm11a': {'dir': '2017.08.10_000/slice_000/cell_000', 'prots': [0,1,2], 'thr': 1.25, 'rt': 0.35, 'decay': 6, 'G': 'F/F'},
+            'm12a': {'dir': '2017.08.11_000/slice_000/cell_000', 'prots': [0,1,2], 'thr': 1.0, 'rt': 0.35, 'decay': 4., 'G': 'F/F'},
+            'm13b': {'dir': '2017.08.15_000/slice_000/cell_001', 'prots': [1,2], 'thr': 1.0, 'rt': 0.35, 'decay': 4., 'G': 'F/+'},
+            'm13c': {'dir': '2017.08.15_000/slice_000/cell_002', 'prots': [0,1,2], 'thr': 3.0, 'rt': 0.35, 'decay': 4., 'G': 'F/+'},
+            'm13d': {'dir': '2017.08.15_000/slice_000/cell_003', 'prots': [0,1,2], 'thr': 2.0, 'rt': 0.35, 'decay': 4., 'G': 'F/+'},
+            'm13e': {'dir': '2017.08.15_000/slice_000/cell_004', 'prots': [1,2,3], 'thr': 1.75, 'rt': 0.35, 'decay': 4., 'G': 'F/+'},
+            # m13f has weird bursts - exclude
+            #'m13f': {'dir': '2017.08.15_000/slice_000/cell_005', 'prots': [0,1,2], 'thr': 2.5, 'rt': 0.35, 'decay': 4., 'G': 'F/+'},
+            # cells 006 and 007 are no good for 8/15
+            # cells 000, 001 002 ng for 8/16
+            'm14d': {'dir': '2017.08.16_000/slice_000/cell_003', 'prots': [0,1,2], 'thr': 1.5, 'rt': 0.35, 'decay': 4., 'G': 'F/F'},
+            
             }
 
+class Summary():
+    def __init__(self):
+        pass
+        
+    def doubleexp(self, x, A, tau_1, tau_2, dc):
+        tm = A * (-np.exp(-x/tau_1) + np.exp((-x/tau_2))) + dc
+        return tm
+    
+    def fit_average_event(self, x, y):
 
+        init_vals = [-20., 0.5, 5., 0.]
+        best_vals, covar = curve_fit(self.doubleexp, x, y, p0=init_vals)
+#        print ('best vals: ', best_vals)
+        self.fitresult = best_vals
+        self.best_fit = self.doubleexp(self.tbx, best_vals[0], best_vals[1], best_vals[2], best_vals[3])
+        # lmfit version - fails for odd reason
+        # dexpmodel = Model(self.doubleexp)
+        # params = dexpmodel.make_params(A=-10., tau_1=0.5, tau_2=4.0, dc=0.)
+        # self.fitresult = dexpmodel.fit(self.avgevent[tsel:], params, x=self.avgeventtb[tsel:])
+        # print(self.fitresult.fit_report())
+        self.best_vals = best_vals
+        self.tau1 = best_vals[1]
+        self.tau2 = best_vals[2]
 
-def do_one_protocol(ds, dprot, plots=True):
-    fn = os.path.join(basedatadir, datasets[ds]['dir'], ('minis_{0:03d}'.format(datasets[ds]['prots'][dprot])))
-    try:
-        data, time_base, dt = rp.readPhysProtocol(fn, records=None)
-    except:
-        print("Incomplete protocol: {:s}".format(fn))
-        raise ValueError('bad data')
-    data = data.asarray()*1e12
-    aj = minis.AndradeJonas()
-    dt = dt * 1000. # convert to msec
-    time_base = time_base*1000.
-    maxt = np.max(time_base)
-    aj.setup(tau1=datasets[ds]['rt'], tau2=datasets[ds]['decay'], tmax=maxt, dt=dt, sign=-1.)
-    intv = []
-    ampd = []
-    mwin = int(2*(4.)/dt)
-    order = int(4/dt)
-    for i in range(data.shape[0]):
-        data[i] = data[i] - data[i].mean()
-        aj.deconvolve(data[i], thresh=datasets[ds]['thr'], llambda=20., order=7)
-        ampd.extend(aj.amplitudes)
-        intv.extend(aj.intervals)
-        if i == 0 and plots:
-            aj.plots()
-#    print len(ampd)
-    # if plots:
-        # f, ax = mpl.subplots(2, 1)
-        # try:
-        #     ax[0].hist(ampd, 50)
-        # except:
-        #     print('ampd: ', ampd)
-        # ax[1].hist(intv, 50)
-    print('Dataset: {:s}'.format(fn))
-    print('    N events: {0:7d}'.format(len(intv)))
-    print('    Intervals: {0:7.1f} ms SD = {1:.1f} Frequency: {2:7.1f} Hz'.format(np.nanmean(intv), np.nanstd(intv), 1e3/np.mean(intv)))
-    print('    Amplitude: {0:7.1f} pA SD = {1:.1f}'.format(np.nanmean(ampd), np.nanstd(ampd)))
-    return np.nanmean(intv), np.nanmean(ampd)
+    def do_one_protocol(self, ds, dprot, plots=False):
+        fn = os.path.join(basedatadir, datasets[ds]['dir'], ('minis_{0:03d}'.format(datasets[ds]['prots'][dprot])))
+        try:
+            data, time_base, dt = rp.readPhysProtocol(fn, records=None)
+        except:
+            print("Incomplete protocol: {:s}".format(fn))
+            raise ValueError('bad data')
+        print('ds: {0:s}   dprot: {1:d}'.format(ds, dprot))
+        data = data.asarray()*1e12
+        aj = minis.AndradeJonas()
+        dt = dt * 1000. # convert to msec
+        time_base = time_base*1000.
+        maxt = np.max(time_base)
+        aj.setup(tau1=datasets[ds]['rt'], tau2=datasets[ds]['decay'], tmax=maxt, dt=dt, sign=-1.)
+        intv = []
+        ampd = []
+        events = []
+        mwin = int(2*(4.)/dt)
+        order = int(4/dt)
+        
+        for i in range(data.shape[0]):  # typically 10
+            data[i] = data[i] - data[i].mean()
+            aj.deconvolve(data[i], thresh=datasets[ds]['thr'], llambda=20., order=7)
+            ampd.extend(aj.amplitudes)
+            intv.extend(aj.intervals)
+            if i == 0: # get event shape
+                print(aj.allevents.shape)
+            events.extend(aj.allevents)
+            if i == 0 and plots:
+                aj.plots()
+    #    print len(ampd)
+        # if plots:
+            # f, ax = mpl.subplots(2, 1)
+            # try:
+            #     ax[0].hist(ampd, 50)
+            # except:
+            #     print('ampd: ', ampd)
+            # ax[1].hist(intv, 50)
+
+        print("")
+        print('Dataset: {:s}'.format(fn))
+        print('    N events: {0:7d}'.format(len(intv)))
+        print('    Intervals: {0:7.1f} ms SD = {1:.1f} Frequency: {2:7.1f} Hz'.format(np.nanmean(intv), np.nanstd(intv), 1e3/np.mean(intv)))
+        print('    Amplitude: {0:7.1f} pA SD = {1:.1f}'.format(np.nanmean(ampd), np.nanstd(ampd)))
+        # print('         tau1: {0:7.1f} pA SD = {1:.1f}'.format(np.nanmean(tau1), np.nanstd(tau1)))
+       #  print('         tau2: {0:7.1f} pA SD = {1:.1f}'.format(np.nanmean(tau2), np.nanstd(tau2)))
+       #   
+        #return np.nanmean(intv), np.nanmean(ampd), np.nanmean(tau1), np.nanmean(tau2)
+        self.intv = intv
+        self.ampd = ampd
+        self.events = np.array(events)
+        self.aj = aj
+        self.dt = dt
+        #print('events: ', self.events.shape)
+        
  
-def runall():
-    gt_intd =  }
-    gt_ampd = {}
-    gt_mouse = []
-    for d in datasets.keys():  # by cell (not mouse)
-        cintv = 0.
-        campd = 0.
-        n = 0
-        g = datasets[d]['G']
-        cintv = 0.
-        for dprot in range(len(datasets[d]['prots'])):
-            intv, ampd = do_one_protocol(d, dprot, plots=False)
-            cintv += 1000./intv
-            campd += ampd
-            n += 1
-        if g not in gt_intd.keys():
-            gt_intd[g] = [cintv/n]
-        else:
-            gt_intd[g].extend([cintv/n])
-        if g not in gt_ampd.keys():
-            gt_ampd[g] = [campd/n]
-        else:
-            gt_ampd[g].extend([campd/n])
-        if d not in gt_mouse:
-            gt_mouse.append([d])
+    def runall(self):
+        gt_intd =  {}
+        gt_ampd = {}
+        gt_tau1 = {}
+        gt_tau2 = {}
+        gt_mouse = []
+        for d in datasets.keys():  # by cell (not mouse)
+            cintv = [[]]
+            campd = [[]]
+            ctau1 = 0.
+            ctau2 = 0.
+            n = 0
+            g = datasets[d]['G']
+#            cintv = 0.
+            for i, dprot in enumerate(range(len(datasets[d]['prots']))):
+                self.do_one_protocol(d, dprot, plots=False)
+                
+                cintv.extend(self.intv)
+                campd.extend(self.ampd)
+                n += 1
+                if i == 0:
+                    allev = self.events
+                else:
+                    allev = np.concatenate((allev, self.events))
+#                print('allev shape: ', allev.shape)
 
-    print gt_mouse
-    for k in gt_intd.keys():
-        print('Genotype: {0:s}'.format(k))
-        print('intvs: ', gt_intd[k])
-    for k in gt_intd.keys():
-        print('Genotype: {0:s}'.format(k))
-        print('amps: ', gt_ampd[k])
+            # now get average event shape, and fit it
+            avg = np.mean(allev, axis=0)
+            t = np.arange(0, self.dt*avg.shape[0], self.dt)
+            tsel = np.argwhere(t >= 6.0)[0][0]
+            self.tbx = t[:-tsel]
+            self.fit_average_event(t[:-tsel], avg[tsel:])            
+            if g not in gt_intd.keys():
+                gt_intd[g] = [np.mean(cintv)]
+            else:
+                gt_intd[g].extend([np.mean(cintv)])
+            if g not in gt_ampd.keys():
+                gt_ampd[g] = [np.mean(campd)]
+            else:
+                gt_ampd[g].extend(np.mean(campd))
+            if g not in gt_tau1.keys():
+                gt_tau1[g] = [self.tau1]
+            else:
+                gt_tau1[g].extend([self.tau1])
+            if g not in gt_tau2.keys():
+                gt_tau2[g] = [self.tau2]
+            else:
+                gt_tau2[g].extend([self.tau2])
+        
+
+            if d not in gt_mouse:
+                gt_mouse.append([d])
+
+        print( gt_mouse)
+        for k in gt_intd.keys():
+            print('Genotype: {0:s}'.format(k))
+            print('intvs: ', gt_intd[k])
+        for k in gt_intd.keys():
+            print('Genotype: {0:s}'.format(k))
+            print('amps: ', gt_ampd[k])
+        for k in gt_intd.keys():
+            print('Genotype: {0:s}'.format(k))
+            print('tau1: ', gt_tau1[k])
+        for k in gt_intd.keys():
+            print('Genotype: {0:s}'.format(k))
+            print('tau2: ', gt_tau2[k])
         
     #mpl.show()
 
 
 if __name__ == '__main__':
+    s = Summary()
     if len(sys.argv) == 1:
-        runall()
+        s.runall()
     else:
         ds = sys.argv[1]
-        for dprot in range(len(datasets[ds]['prots'])):
-            do_one_protocol(ds, dprot)
+        for i, dprot in enumerate(range(len(datasets[ds]['prots']))):
+            s.do_one_protocol(ds, dprot)
+            if i == 0:
+                allev = s.events
+            else:
+                allev = np.concatenate((allev, s.events))
+        avg = np.mean(allev, axis=0)
+        t = np.arange(0, s.dt*avg.shape[0], s.dt)
+        tsel = np.argwhere(t >= 6.0)[0][0]
+        s.tbx = t[:-tsel]
+        s.fit_average_event(t[:-tsel], avg[tsel:])
+        print('    Tau1: %7.3f  Tau2: %7.3f' % (s.best_vals[1], s.best_vals[2]))
+#        s.best_fit = [-30., 0.5, 4., -3]
+        mpl.plot(t,  avg, 'k')
+        mpl.plot(t[tsel:], s.best_fit, 'r--')
+#        mpl.plot(t[tsel:], s.doubleexp(t[:-tsel], s.best_fit[0] , s.best_fit[1], s.best_fit[2], s.best_fit[3]), 'r--')
         mpl.show()
 
           
