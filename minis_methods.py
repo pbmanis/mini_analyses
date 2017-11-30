@@ -8,10 +8,9 @@ July 2017 Paul B. Manis
 """
 import numpy as np
 import scipy.signal
-import numpy.random
 import matplotlib.pyplot as mpl
 import digital_filters as dfilt
-from lmfit import Model
+
 from scipy.optimize import curve_fit
 
 
@@ -111,7 +110,6 @@ class ClementsBekkers():
         ## Strip out meta-data for faster computation
         D = data.view(np.ndarray)
         T = self.template.view(np.ndarray)
-        NDATA = len(D)
         ## Prepare a bunch of arrays we'll need later
         N = len(T)
         sumT = T.sum()
@@ -184,7 +182,7 @@ class AndradeJonas(object):
         self.taus = None
         self.tmax = None
 
-    def setup(self, tau1=None, tau2=None, tmax=None, dt=None, delay=1.0, sign=1):
+    def setup(self, tau1=None, tau2=None, tmax=None, dt=None, delay=0.0, sign=1):
         """
         Just store the parameters - will compute when needed"""
         self.sign = sign
@@ -202,8 +200,11 @@ class AndradeJonas(object):
         t_psc = np.arange(0, self.tmax, self.dt)
         Aprime = (tau_2/tau_1)**(tau_1/(tau_1-tau_2))
         self.template = np.zeros_like(t_psc)
-        tm = 1./Aprime * (-np.exp(-t_psc/tau_1) + np.exp((-t_psc/tau_2)))
-        self.template[self.delay:] = tm[:-self.delay]  # shift the template
+        tm = 1./Aprime * ((1-(np.exp(-t_psc/tau_1)))**4 * np.exp((-t_psc/tau_2)))
+        if self.delay > 0:
+            self.template[self.delay:] = tm[:-self.delay]  # shift the template
+        else:
+            self.template = tm
         self.template_max = np.max(self.template)
         if self.sign == -1:
             self.template = -self.template
@@ -217,7 +218,7 @@ class AndradeJonas(object):
         H = np.fft.fft(self.template)
         if H.shape[0] < self.data.shape[0]:
             H = np.hstack((H, np.zeros(self.data.shape[0]-H.shape[0])))
-        self.quot = np.fft.ifft(np.fft.fft(data)*np.conj(H)/(H*np.conj(H) + llambda**2))
+        self.quot = np.fft.ifft(np.fft.fft(self.data)*np.conj(H)/(H*np.conj(H) + llambda**2))
         self.quot = np.real(self.quot)
         sd = np.std(self.quot)
         self.sdthr = sd * thresh  # set the threshold
@@ -253,7 +254,7 @@ class AndradeJonas(object):
             #                     uwin], np.greater, order=order)[0]
             self.peaks.extend([int(p+self.onsets[j])])
             self.smoothed_peaks.extend([m[p]])
-            abase = np.mean(self.data[self.onsets[j]-5:self.onsets[j]])
+            abase = np.mean(self.data[self.onsets[j]-10:self.onsets[j]-3])
             apeak = np.mean(self.data[self.peaks[-1]-3:self.peaks[-1]+3])
             amp = self.sign*apeak - self.sign*abase
             self.amplitudes.extend([amp])
@@ -290,7 +291,7 @@ class AndradeJonas(object):
         return tm
     
     def fit_average_event(self):
-        tsel = np.argwhere(self.avgeventtb > self.tpre)  # only fit data in event, not baseline
+        tsel = np.argwhere(self.avgeventtb > self.tpre)[0]  # only fit data in event, not baseline
         tsel = np.min(tsel)
         self.fittsel = tsel
         init_vals = [-10., 0.5, 4., 0.]
@@ -308,7 +309,6 @@ class AndradeJonas(object):
 
     def plots(self, events=None):
         data = self.data
-        dt = self.dt
         fig, ax = mpl.subplots(3, 1)
         for i in range(1,2):
             ax[i].get_shared_x_axes().join(ax[i], ax[0])
@@ -324,7 +324,7 @@ class AndradeJonas(object):
         
         ax[1].plot(tb[:self.quot.shape[0]], self.quot)  # deconvolution
         ax[1].plot([tb[0],tb[-1]], [self.sdthr, self.sdthr], 'r--', linewidth=0.75)
-        ax[1].plot(tb[self.onsets], self.quot[self.onsets], 'y^')
+        ax[1].plot(tb[self.onsets]+self.delay, self.quot[self.onsets], 'y^')  # add delay to show event onsets correctly
         if events is not None:  # original events
             ax[1].plot(tb[:self.quot.shape[0]][events], self.quot[events], 'ro', markersize=5.)
 
