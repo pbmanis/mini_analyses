@@ -223,7 +223,9 @@ class AndradeJonas(object):
         sd = np.std(self.quot)
         self.sdthr = sd * thresh  # set the threshold
         # threshold (all values below sdthr become 0)
-        self.above = scipy.stats.threshold(self.quot, self.sdthr)
+        # scipy.stats.threshold was deprecated (no reason?) in 0.17; we run in 0.19
+#        self.above = scipy.stats.threshold(self.quot, self.sdthr)
+        self.above = np.clip(self.quot, self.sdthr, None)
         self.onsets = scipy.signal.argrelextrema(self.above, np.greater, order=order)[0] - 1
         self.summarize()
 
@@ -307,7 +309,7 @@ class AndradeJonas(object):
         self.tau1 = best_vals[1]
         self.tau2 = best_vals[2]
 
-    def plots(self, events=None):
+    def plots(self, events=None, title=None):
         data = self.data
         fig, ax = mpl.subplots(3, 1)
         for i in range(1,2):
@@ -334,6 +336,8 @@ class AndradeJonas(object):
         maxa = np.max(self.sign*self.avgevent)
         ax[2].plot(self.avgeventtb+self.tpre, self.template[0:self.avgnpts]*maxa/self.template_max, 'r-')
 #        ax[2].plot(self.avgeventtb[self.fittsel:], self.best_fit, 'g--')
+        if title is not None:
+            fig.suptitle(title)
         mpl.show()
 
 def moving_average(a, n=3) :
