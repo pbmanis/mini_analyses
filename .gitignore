@@ -1,0 +1,6 @@
+.pyc
+.o
+__pycache__/
+
+# prism
+.pfzx
