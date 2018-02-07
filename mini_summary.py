@@ -19,6 +19,8 @@ if computer_name in ['Tamalpais']:
     basedir = ('/Volumes/PBM_004/data/NCAM-miniIPSCs')
 elif computer_name in ['Lytle']:
     basedir = ('/Volumes/Pegasus/ManisLab_Data3/Sullivan_Chelsea/miniIPSCs')
+elif computer_name in ['Tule']:
+    basedir = ('/Users/experimenters/Data/Chelsea/CHL1/')
 else:
     raise ValueError('Computer name not in known list of names to set base path')
 
@@ -26,7 +28,7 @@ else:
 import CS_CHL1_minis as cs
 basedir = cs.basepath
 datasets = cs.datasets
-print( datasets)
+#print( datasets)
 
 class Summary():
     def __init__(self):
@@ -83,8 +85,9 @@ class Summary():
             if i == 0: # get event shape
                 print(aj.allevents.shape)
             events.extend(aj.allevents)
+            title2 = ('data: {0:s}   protocol #: {1:d} trace: {2:d}'.format(ds, dprot, i))
             if i >= 0 and plots:
-                aj.plots(title=title)
+                aj.plots(title=title2)
     #    print len(ampd)
         if plots:
             f, ax = mpl.subplots(2, 1)

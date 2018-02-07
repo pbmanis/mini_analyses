@@ -10,13 +10,15 @@ import numpy as np
 import matplotlib.pyplot as mpl
 import scipy.signal
 
-basedatadir = '/Volumes/Pegasus/ManisLab_Data3/Sullivan_Chelsea/miniIPSCs'
-
-datasets = {#0: {'dir': '2017.04.25_000/slice_000/cell_002/minis_007', 'thr': 3.5, 'rt': 0.35, 'decay': 6.},
-#            1: {'dir': '2017.05.02_000/slice_000/cell_000/', 'prots': [0,1,2]'thr': 2.0, 'rt': 0.35, 'decay': 5.},
-            2: {'dir': '2017.05.02_000/slice_000/cell_001', 'prots': [0,1,2], 'thr': 2.5, 'rt': 0.35, 'decay': 5.},
-
-            }
+# basedatadir = '/Volumes/Pegasus/ManisLab_Data3/Sullivan_Chelsea/miniIPSCs'
+# 
+# datasets = {#0: {'dir': '2017.04.25_000/slice_000/cell_002/minis_007', 'thr': 3.5, 'rt': 0.35, 'decay': 6.},
+# #            1: {'dir': '2017.05.02_000/slice_000/cell_000/', 'prots': [0,1,2]'thr': 2.0, 'rt': 0.35, 'decay': 5.},
+#             2: {'dir': '2017.05.02_000/slice_000/cell_001', 'prots': [0,1,2], 'thr': 2.5, 'rt': 0.35, 'decay': 5.},
+# 
+#             }f
+from  CS_CHL1_minis import *
+basedatadir = basepath
 
 dt = 0.1
 for d in datasets.keys():
