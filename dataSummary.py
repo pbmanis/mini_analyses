@@ -48,8 +48,8 @@ class DataSummary():
         self.basedir = basedir
 
         # column definitions - may need to adjust if change data that is pasted into the output
-        self.coldefs = 'Date \tDescription \tNotes \tGenotype \tAge \tSex \tWeight \tTemp \tElapsed T \tSlice \tSlice Notes \t'
-        self.coldefs += 'Cell \t Cell Notes \t \tProtocols \tImages \t'
+        self.coldefs = 'Date\tDescription\tNotes\tGenotype\tAge\tSex\tWeight\tTemp\tElapsed T\tSlice\tSlice Notes\t'
+        self.coldefs += 'Cell\t Cell Notes\t\tProtocols\tImages\t'
 
         self.outputMode = 'terminal' # 'tabfile'
         outputDir = os.path.join(os.path.expanduser("~"), 'Desktop/acq4_scripts')
@@ -205,7 +205,7 @@ class DataSummary():
                     self.daystring += i
             else:
                 self.daystring += ' [no description]'
-            self.daystring += ' \t'
+            self.daystring += '\t'
             if dx is not None and 'notes' in dx.keys() and len(dx['notes']) > 0:
                 l = self.tw['day'].wrap(dx['notes'])
                 for i in l:
@@ -213,7 +213,7 @@ class DataSummary():
                     self.daystring += i
             else:
                 self.daystring += ' [no notes]'
-            self.daystring += ' \t'
+            self.daystring += '\t'
             self.doSlices(os.path.join(self.basedir, day))
             os.closerange(8, 65535)  # close all files in each iteration
             gc.collect()
@@ -235,7 +235,7 @@ class DataSummary():
             if len(m.groups()) == 2:
                 slices.append(thisfile)
         for slice in slices:
-            self.slicestring = '%s \t' % (slice)
+            self.slicestring = '%s\t' % (slice)
             dh = DataManager.getDirHandle(os.path.join(day, slice), create=False)
             sl = self.dataModel.getSliceInfo(dh)
 
@@ -254,7 +254,7 @@ class DataSummary():
                     self.slicestring += i
             else:
                 self.slicestring += ' No slice notes'
-            self.slicestring += ' \t'
+            self.slicestring += '\t'
             self.doCells(os.path.join(day, slice))
             DataManager.cleanup()
             del dh
@@ -278,7 +278,10 @@ class DataSummary():
         for cell in cells:
             self.cellstring = '%s\t' % (cell)
             dh = DataManager.getDirHandle(os.path.join(slice, cell), create=False)
-            cl = self.dataModel.getCellInfo(dh)
+            try:
+                cl = self.dataModel.getCellInfo(dh)  # possible that .index file is messed up, so we cannot read
+            except:
+                continue
             if cl is not None and 'notes' in cl.keys() and len(cl['notes']) > 0:
                 l = self.tw['cell'].wrap(cl['notes'])
                 for i in l:
@@ -286,7 +289,7 @@ class DataSummary():
                     self.cellstring += i
             else:
                 self.cellstring += ' No cell notes'
-            self.cellstring += ' \t'
+            self.cellstring += '\t'
             self.cell_summary(dh)
             
             # if cl is not None and 'description' in cl.keys() and len(cl['description']) > 0:
@@ -296,7 +299,7 @@ class DataSummary():
             # else:
             #     self.cellstring += ' No cell description'
 
-            self.cellstring += ' \t'
+            self.cellstring += '\t'
             self.doProtocols(os.path.join(slice, cell))
             DataManager.cleanup() # clean up after each cell
             del dh
@@ -423,7 +426,7 @@ class DataSummary():
                 self.protocolstring += ']'
             else:
                 self.protocolstring = '<No protocols found>'
-        self.protocolstring += ' \t'
+        self.protocolstring += '\t'
 
         for thisfile in nonprotocols:
 #            if os.path.isdir(os.path.join(cell, thisfile)):  # skip protocols
@@ -453,9 +456,9 @@ class DataSummary():
             self.imagestring = 'No Images or Videos'
         
         if anyprotocols:
-            ostring =  self.daystring + self.summarystring + self.slicestring + self.cellstring + self.protocolstring + self.imagestring + ' \t'
+            ostring =  self.daystring + self.summarystring + self.slicestring + self.cellstring + self.protocolstring + self.imagestring + '\t'
         else:
-            ostring = self.daystring + self.summarystring + self.slicestring + self.cellstring + '<No complete protocols> \t' + self.imagestring + ' \t'
+            ostring = self.daystring + self.summarystring + self.slicestring + self.cellstring + '<No complete protocols> \t' + self.imagestring + '\t'
         self.outputString(ostring)
 
     def outputString(self, ostring):
@@ -538,7 +541,7 @@ class DataSummary():
         ltxt = ''
         for a in data_template.keys():
             if a in self.analysis_summary.keys():
-                ltxt += ((data_template[a] + ' \t').format(self.analysis_summary[a]))
+                ltxt += ((data_template[a] + '\t').format(self.analysis_summary[a]))
             else:
                 ltxt += (('NaN \t'))
         self.summarystring = ltxt
