@@ -5,7 +5,8 @@ Analysis
 from __future__ import print_function
 import sys
 import os
-import read_protocol as rp
+#import read_protocol as rp
+import ephysanalysis as EP
 import minis_methods as minis
 import numpy as np
 import matplotlib.pyplot as mpl
@@ -21,6 +22,8 @@ elif computer_name in ['Lytle']:
     basedir = ('/Volumes/Pegasus/ManisLab_Data3/Sullivan_Chelsea/miniIPSCs')
 elif computer_name in ['Tule']:
     basedir = ('/Users/experimenters/Data/Chelsea/CHL1/')
+elif computer_name in ['Tamalpais2']:
+    basedir = ('/Users/pbmanis/Documents/data/CHL1/')
 else:
     raise ValueError('Computer name not in known list of names to set base path')
 
@@ -57,20 +60,26 @@ class Summary():
     def do_one_protocol(self, ds, dprot, sign=-1, plots=False):
         fn = os.path.join(basedir, datasets[ds]['dir'], ('minis_{0:03d}'.format(datasets[ds]['prots'][dprot])))
         print('fn: ', fn)
-        try:
-            data, time_base, dt = rp.readPhysProtocol(fn, records=None)
-        except:
-            print("Incomplete protocol: {:s}".format(fn))
-            return
-            #raise ValueError('bad data')
+        self.acq = EP.acq4read.Acq4Read(dataname='Clamp1.ma')
+        self.acq.setProtocol(fn)
+        self.acq.getData()
+        data = self.acq.data_array*1e12
+        time_base = self.acq.time_base
+        dt = self.acq.sample_interval
+        aj = minis.AndradeJonas()
+        # try:
+        #     data, time_base, dt = rp.readPhysProtocol(fn, records=None)
+        # except:
+        #     print("Incomplete protocol: {:s}".format(fn))
+        #     return
+        #     #raise ValueError('bad data')
         title = ('data: {0:s}   protocol #: {1:d}'.format(ds, dprot))
         print (title)
-        data = data.asarray()*1e12
-        aj = minis.AndradeJonas()
+
         dt = dt * 1000. # convert to msec
         time_base = time_base*1000.
         maxt = np.max(time_base)
-        aj.setup(tau1=datasets[ds]['rt'], tau2=datasets[ds]['decay'], tmax=maxt, dt=dt, sign=sign)
+        aj.setup(tau1=datasets[ds]['rt'], tau2=datasets[ds]['decay'], template_tmax=maxt, dt=dt, sign=sign)
         intv = []
         ampd = []
         events = []
@@ -79,6 +88,8 @@ class Summary():
         
         for i in range(data.shape[0]):  # typically 10
             data[i] = data[i] - data[i].mean()
+            # low pass and high pass the data
+            # clip the data time window
             aj.deconvolve(data[i], thresh=datasets[ds]['thr'], llambda=20., order=7)
             ampd.extend(aj.amplitudes)
             intv.extend(aj.intervals)
