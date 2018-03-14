@@ -12,7 +12,7 @@ class ClementsBekkers():
     
     def clements_bekkers(self, data, template):
         """
-            Implements Clements-bekkers algorithm: slides template across data,
+        Implements Clements-bekkers algorithm: slides template across data,
         returns array of points indicating goodness of fit.
         Biophysical Journal, 73: 220-229, 1997.
         """
