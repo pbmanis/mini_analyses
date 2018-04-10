@@ -119,6 +119,9 @@ class MiniSummarize():
 
         P.axdict['A'].legend()
         P.figure_handle.suptitle(self.filename.replace('_', '\_'))
+        
+        
+        
         mpl.savefig('msummary_%s.pdf' % self.experiment_id)
         mpl.show() 
 

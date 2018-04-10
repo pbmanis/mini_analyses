@@ -136,8 +136,12 @@ class AndradeJonas(object):
         
     def deconvolve(self, data, tmax, dt=0.1, thresh=1, llambda=5.0, order=7, events=None):
         # Weiner filter deconvolution
-        self.timebase = np.arange(0., tmax+dt, dt)
-        H = np.fft.fft(self.template)
+        self.timebase = np.arange(0., data.shape[0]*dt, dt)
+        H = np.fft.fft(self.template[:data.shape[0]])
+        print self.timebase.shape
+        print self.template.shape
+        print H.shape
+        print data.shape
         self.quot = np.real(np.fft.ifft(np.fft.fft(data)*np.conj(H)/(H*np.conj(H) + llambda**2)))
         sd = np.std(self.quot)
         self.sdthr = sd * thresh  # set the threshold
@@ -154,13 +158,21 @@ class AndradeJonas(object):
         ax[0].plot(tb[self.onsets], data[self.onsets], 'y^')
         if events is not None:
             ax[0].plot(tb[events], data[events], 'ro', markersize=5)
-        
+        mwin = int(2*(4.)/dt)
+        order = int(4/dt)
         ax[1].plot(tb[:self.quot.shape[0]], self.quot)  # deconvolution
         ax[1].plot([tb[0],tb[-1]], [self.sdthr, self.sdthr], 'r--', linewidth=0.75)
         ax[1].plot(tb[self.onsets], self.quot[self.onsets], 'y^')
         if events is not None:  # original events
-            ax[1].plot(tb[:self.quot.shape[0]][events], self.quot[events], 'ro', markersize=5.)
-
+            peaks = []
+            amps = []
+            for j in range(len(data[self.onsets])):
+                 p =  scipy.signal.argrelextrema(self.sign*data[self.onsets[j]:(self.onsets[j]+mwin)], np.greater, order=order)[0]
+                 if len(p) > 0:
+                     peaks.extend([int(p[0]+self.onsets[j])])
+                     amp = self.sign*data[peaks[-1]] - self.sign*data[self.onsets[j]]
+                     amps.extend([amp])
+            ax[0].plot(tb[peaks], data[peaks], 'mo', markersize=4)
         ax[2].plot(tb[:self.above.shape[0]], self.above)
         ax[2].plot([tb[0],tb[-1]], [self.sdthr, self.sdthr], 'r--', linewidth=0.75)
         # compute average event with length of template
@@ -229,9 +241,9 @@ def cb_tests():
 def aj_tests():
     dt = 0.1
     timebase, testpsc, testpscn, i_events = generate_testdata(amp=20., ampvar=5., noise=5.0)
-    aj = cb.AndradeJonas()
+    aj = AndradeJonas()
     template = aj.make_template(1, 10., np.max(timebase), dt)
-    aj.deconvolve(testpscn, template, np.max(timebase), dt=dt, thresh=3.0, events=i_events, llambda=5., order=7)
+    aj.deconvolve(testpscn, np.max(timebase), dt=dt, thresh=3.0, events=i_events, llambda=5., order=7)
     aj.plots(np.max(timebase), dt, testpscn, events=i_events)
     
 
