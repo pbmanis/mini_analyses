@@ -33,7 +33,7 @@ datasets = {
         'thr': 2.5, 'rt': 0.35, 'decay': 4., 'G': 'CHL1'},
     'm7c': {'dir': '2017.11.20_000/slice_000/cell_002',
         'prots': [0], 'exclist': [],
-        'thr': 2.5, 'rt': 0.35, 'decay': 4., 'G': 'CHL1'},
+        'thr': 3.5, 'rt': 0.35, 'decay': 4., 'G': 'CHL1'},
     'm8a': {'dir': '2017.11.21_000/slice_000/cell_000',
         'prots': [0, 1, 2], 'exclist': {0: [0], 1: [0,1]},  # needs cleaner processing...
         'thr': 2.5, 'rt': 0.35, 'decay': 4., 'G': 'CHL1'},
