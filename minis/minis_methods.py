@@ -379,13 +379,11 @@ class AndradeJonas(object):
         # dexpmodel = Model(self.doubleexp)
         # params = dexpmodel.make_params(A=-10.,  tau_1=0.5,  tau_2=4.0,  dc=0.)
         # self.fitresult = dexpmodel.fit(self.avgevent[tsel:],  params,  x=self.avgeventtb[tsel:])
-        print('fitresult: ', self.fitresult)
         self.Amplitude = self.fitresult[0]
         self.tau1 = self.fitresult[1]
         self.tau2 = self.fitresult[2]
         self.DC = 0. # best_vals[3]
         self.fitted = True
-        print('max, min fitr: ', np.min(self.best_fit), np.max(self.best_fit))
 
     def plots(self,  events=None,  title=None):
         """
@@ -430,7 +428,6 @@ class AndradeJonas(object):
         if self.averaged:
             ax[2].plot(self.avgeventtb[:len(self.avgevent)],  self.avgevent, 'k', label='Average Event')
             maxa = np.max(self.sign*self.avgevent)
-            print('maxa: ', maxa, self.template_amax, np.max(self.avgevent), self.sign)
             #tpkmax = np.argmax(self.sign*self.template)
             temp_tb = np.arange(0, len(self.template)*self.dt, self.dt)
             #print(len(self.avgeventtb[:len(self.template)]), len(self.template))

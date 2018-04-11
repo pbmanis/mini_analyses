@@ -26,7 +26,7 @@ import matplotlib.gridspec as gridspec
 import scipy.signal
 import scipy.stats
 
-import clements_bekkers as cb
+import minis_methods as minis
 import pylibrary.Utility as PU
 import digital_filters as DF
 import pylibrary.PlotHelpers as PH
@@ -34,7 +34,7 @@ import ephysanalysis as EP
 from matplotlib.backends.backend_pdf import PdfPages
 
 rc('text', usetex=False)
-rc('font',**{'family':'sans-serif','sans-serif':['Helvetica']})
+rc('font',**{'family':'sans-serif','sans-serif':['Verdana']})
 
 # Example for the data table:
 # basedatadir = '/Volumes/Pegasus/ManisLab_Data3/Sullivan_Chelsea/miniIPSCs'
@@ -158,7 +158,8 @@ def analyze_one(mouse, pdf, maxprot=10):
     cell_summary={'intervals': [], 'amplitudes': [], 'protocols': [], 'eventcounts': [], 'genotype': genotype, 'mouse': mouse, 
         'amplitude_midpoint': 0.}
     
-    sizer = OrderedDict([('A', {'pos': [0.12, 0.82, 0.35, 0.60]}),
+    sizer = OrderedDict([('A', {'pos': [0.12, 0.8, 0.35, 0.60]}),
+                       #  ('A1', {'pos': [0.52, 0.35, 0.35, 0.60]}),
                          ('B', {'pos': [0.12, 0.35, 0.08, 0.20]}),
                          ('C', {'pos': [0.60, 0.35, 0.08, 0.20]}),
                          ])  # dict elements are [left, width, bottom, height] for the axes in the plot.
@@ -171,6 +172,7 @@ def analyze_one(mouse, pdf, maxprot=10):
     ax0 = P.axdict['A']
     ax0.set_ylabel('pA', fontsize=9)
     ax0.set_xlabel('T (ms)', fontsize=9)
+    #axdec = P.axdict['A1']
     axIntvls = P.axdict['B']
     axIntvls.set_ylabel('Fraction of Events', fontsize=9)
     axIntvls.set_xlabel('Interevent Interval (ms)', fontsize=9)
@@ -182,6 +184,7 @@ def analyze_one(mouse, pdf, maxprot=10):
     
     datanameposted = False
     yspan = 40.
+    ypqspan = 2000.
     ntr = 0
     # for all of the protocols that are included for this cell (identified by mouse and a letter)
     for nprot, dprot in enumerate(mousedata['prots']):
@@ -199,7 +202,12 @@ def analyze_one(mouse, pdf, maxprot=10):
             print (mousedata['prots'])
             print(dprot, mousedata['prots'][nprot])
             exit(1)
+        if 'sign' not in mousedata.keys():
+            sign = -1
+        else:
+            sign = mousedata['sign']
         print ('  Protocol file: ', fn)
+        print('   sign: ', sign)
         split = splitall(fn)[-4:-1]
         dataname = ''
         for i in range(len(split)):
@@ -219,15 +227,15 @@ def analyze_one(mouse, pdf, maxprot=10):
             continue
         data = np.array(acqr.data_array)
         time_base = acqr.time_base
-        dt = acqr.sample_interval  # in sec... so convert (later)
-        print('  dt: ', dt)
-        data = data*1e12
-        aj = cb.AndradeJonas()
-        dt = dt * 1000. # convert to msec
+        dt = 1000.*acqr.sample_interval  # in sec... so convert to msec
+        data = data*1e12  # convert to pA
+        aj = minis.AndradeJonas()
         time_base = time_base*1000.
-        aj.make_template(0.35, mousedata['decay'], np.max(time_base), dt, sign=-1.)
+        maxt = np.max(time_base)
+#        print('mousedata rt: ', mousedata['rt'], '   mousedata decay: ', mousedata['decay'])
+        aj.setup(tau1=mousedata['rt'], tau2=mousedata['decay'], template_tmax=maxt, dt=dt, delay=0.0, sign=-1)
         mwin = int(2*(4.)/dt)
-        order = int(4/dt)
+        order = int(1.0/dt)
         
         ntraces = data.shape[0]
         tracelist = range(ntraces)
@@ -237,7 +245,10 @@ def analyze_one(mouse, pdf, maxprot=10):
         # for all of the traces collected in this protocol run
         for i in tracelist:
             yp = (ntr+i)*yspan
-            data[i] = data[i] - data[i].mean()
+            ypq = (ntr*i)*ypqspan
+            linefit= np.polyfit(time_base, data[i], 1)
+            refline = np.polyval(linefit, time_base)
+            data[i] = data[i] - refline
             odata = data[i].copy()
             ax0.text(-1200, yp, '%03d %d' % (dprot, i), fontsize=8)  # label the trace
             if i in exclude_traces:  # plot the excluded traces, but do not analyze them
@@ -249,29 +260,39 @@ def analyze_one(mouse, pdf, maxprot=10):
             # NotchFilter(signal, notchf=[60.], Q=90., QScale=True, samplefreq=None):
             data[i] = DF.NotchFilter(data[i], [60., 120., 180., 240., 300., 360, 420., 
                             480., 660., 780., 1020., 1140., 1380., 1500., 4000.], Q=20., samplefreq=1000./dt)
-            dfilt = DF.SignalFilter_HPFButter(np.pad(data[i], (len(data[i]), len(data[i])), 'mean'), 2.5, 1000./dt, NPole=4)
+            dfilt = DF.SignalFilter_HPFButter(np.pad(data[i], (len(data[i]), len(data[i])), mode='median', ), 2.5, 1000./dt, NPole=4)
             dfilt = DF.SignalFilter_LPFButter(dfilt, 2800., 1000./dt, NPole=4)
 #            frsfilt, freqsf = PU.pSpectrum(dfilt, samplefreq=1000./dt)
             data[i] = dfilt[len(data[i]):2*len(data[i])]
-            aj.deconvolve(data[i], np.max(time_base), dt=dt, thresh=mousedata['thr']*1.2, llambda=10., order=7)
+            
+            aj.deconvolve(data[i], thresh=float(mousedata['thr']), llambda=10., order=order)
 
             # summarize data
+            aj.summarize(data[i])
+            #aj.plots()
             intervals = np.diff(aj.timebase[aj.onsets])
             cell_summary['intervals'].extend(intervals)
-            peaks = []
-            amps = []
-            for j in range(len(aj.onsets)):
-                 p =  scipy.signal.argrelextrema(aj.sign*data[i][aj.onsets[j]:(aj.onsets[j]+mwin)], np.greater, order=order)[0]
-                 if len(p) > 0:
-                     peaks.extend([int(p[0]+aj.onsets[j])])
-                     amp = aj.sign*data[i][peaks[-1]] - aj.sign*data[i][aj.onsets[j]]
-                     amps.extend([amp])
-            cell_summary['amplitudes'].extend(amps)
+            # peaks = []
+            # amps = []
+            # for j in range(len(aj.onsets)):
+            #      p =  scipy.signal.argrelextrema(aj.sign*data[i][aj.onsets[j]:(aj.onsets[j]+mwin)], np.greater, order=order)[0]
+            #      if len(p) > 0:
+            #          peaks.extend([int(p[0]+aj.onsets[j])])
+            #          amp = aj.sign*data[i][peaks[-1]] - aj.sign*data[i][aj.onsets[j]]
+            #          amps.extend([amp])
+            cell_summary['amplitudes'].extend(sign*data[i][aj.smpkindex])
             cell_summary['eventcounts'].append(len(intervals))
             cell_summary['protocols'].append((nprot, i))
             ax0.plot(aj.timebase, odata + yp ,'c-', linewidth=0.25, alpha=0.25, rasterized=rasterize)
             ax0.plot(aj.timebase, data[i] + yp, 'k-', linewidth=0.25, rasterized=rasterize)
-            ax0.plot(aj.timebase[peaks], data[i][peaks] + yp, 'ro', markersize=1.75, rasterized=rasterize)
+            ax0.plot(aj.timebase[aj.smpkindex], data[i][aj.smpkindex] + yp, 'ro', markersize=1.75, rasterized=rasterize)
+
+            if 'A1' in P.axdict.keys():
+                axdec.plot(aj.timebase[:aj.quot.shape[0]],  aj.quot, label='Deconvolution') 
+                axdec.plot([aj.timebase[0],aj.timebase[-1]],  [aj.sdthr,  aj.sdthr],  'r--',  linewidth=0.75, 
+                        label='Threshold ({0:4.2f}) SD'.format(aj.sdthr))
+                axdec.plot(aj.timebase[aj.onsets]-aj.idelay,  ypq + aj.quot[aj.onsets],  'y^', label='Deconv. Peaks')
+    #            axdec.plot(aj.timebase, aj.quot+ypq, 'k', linewidth=0.5, rasterized=rasterize)
         ntr = ntr + len(tracelist) - len(exclude_traces)
         if nused == 0:
             continue
@@ -285,7 +306,7 @@ def analyze_one(mouse, pdf, maxprot=10):
     nevents = len(cell_summary['amplitudes'])
     if nevents < 100:
         return cell_summary
-    amp, ampbins, amppa= axAmps.hist(cell_summary['amplitudes'], histBins, alpha=0.5, normed=True)
+    amp, ampbins, amppa= axAmps.hist(cell_summary['amplitudes'], histBins, alpha=0.5, density=True)
 
     # fit to normal distribution
     ampnorm = scipy.stats.norm.fit(cell_summary['amplitudes'])  #
@@ -327,7 +348,7 @@ def analyze_one(mouse, pdf, maxprot=10):
     #
     # Interval distribution
     #
-    an, bins, patches = axIntvls.hist(cell_summary['intervals'], histBins, normed=True)
+    an, bins, patches = axIntvls.hist(cell_summary['intervals'], histBins, density=True)
     nintvls = len(cell_summary['intervals'])
     expDis = scipy.stats.expon.rvs(scale=np.std(cell_summary['intervals']), loc=0, size=nintvls)
     # axIntvls.hist(expDis, bins=bins, histtype='step', color='r')
