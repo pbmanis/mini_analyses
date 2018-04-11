@@ -63,11 +63,26 @@ rc('font',**{'family':'sans-serif','sans-serif':['Verdana']})
 # 
 # 
 
+class DataPlan():
+    def __init__(self, datadictname):
+        data = {}
+        fn, ext = os.path.splitext(datadictname)
+        if ext == '':
+            ext = '.py'
+        execfile(fn + ext, data)
+        self.datasource = datadictname
+        self.datasets = data['datasets']
+        self.datadir = data['basepath']
+
+dataplan = DataPlan('CS_CHL1_minis')
+basedatadir = dataplan.datadir
+datasets = dataplan.datasets
+
 expt = 'CS_CHL1'
-from  CS_CHL1_minis import *
-# expt = 'CS_NCAM'
-# from CS_NCAM_minis import *
-basedatadir = basepath
+# from  CS_CHL1_minis import *
+# # expt = 'CS_NCAM'
+# # from CS_NCAM_minis import *
+# basedatadir = basepath
 
 def splitall(path):
     """
