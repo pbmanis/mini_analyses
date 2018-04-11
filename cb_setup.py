@@ -12,7 +12,7 @@ from Cython.Distutils import build_ext
 
 
 ext_modules=[ Extension("clembek",
-              ["clembek.pyx"],
+              ["minis/clembek.pyx"],
               libraries=["m"],
               extra_compile_args = ["-ffast-math"])]
 
