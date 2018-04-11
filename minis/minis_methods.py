@@ -208,7 +208,7 @@ class AndradeJonas(object):
         self.template_max = None
         self.idelay = 0
 
-    def setup(self,  tau1=None,  tau2=None,  template_tmax=None,  dt=None,  delay=0.0,  sign=1):
+    def setup(self,  tau1=None,  tau2=None,  template_tmax=None,  dt=None,  delay=0.0,  sign=1, eventstartthr=None):
         """
         Just store the parameters - will compute when needed
         """
@@ -219,6 +219,7 @@ class AndradeJonas(object):
         self.template_tmax = template_tmax
         self.idelay = int(delay/dt)  # points delay in template with zeros
         self.template = None  # reset the template if needed.
+        self.eventstartthr = eventstartthr
         
     def _make_template(self):
         """
@@ -234,15 +235,17 @@ class AndradeJonas(object):
             self.template[self.idelay:] = tm[:-self.idelay]  # shift the template
         else:
             self.template = tm
-        #self.template = tm
-        self.template_amax = np.max(self.template)
-        if self.sign == -1:
+        if self.sign > 0:
+            self.template_amax = np.max(self.template)
+        else:
             self.template = -self.template
+            self.template_amax = np.min(self.template)
+            
         
     def deconvolve(self,  data,  thresh=1,  llambda=5.0,  order=7):
         if self.template is None:
             self._make_template()
-        self.data = self.sign*dfilt.SignalFilter_LPFButter(data,  3000.,  1000/self.dt,  NPole=8)
+        self.data = dfilt.SignalFilter_LPFButter(data,  3000.,  1000/self.dt,  NPole=8)
         self.timebase = np.arange(0.,  self.data.shape[0]*self.dt,  self.dt)
     #    print (np.max(self.timebase), self.dt)
 
@@ -278,26 +281,42 @@ class AndradeJonas(object):
         mwin = int(2*(4.)/self.dt)
         order = int(4./self.dt)
    #     print('onsets: ', self.onsets)
+        if self.sign > 0:
+            nparg = np.greater
+        else:
+            nparg = np.less
         if len(self.onsets) > 0:  # original events
+            acceptlist = []
             for j in range(len(data[self.onsets])):
-                 p =  scipy.signal.argrelextrema(self.sign*data[self.onsets[j]:(self.onsets[j]+mwin)], np.greater, order=order)[0]
-                 if len(p) > 0:
-                     self.peaks.extend([int(p[0]+self.onsets[j])])
-                     amp = self.sign*data[self.peaks[-1]] - self.sign*data[self.onsets[j]]
+                if self.sign > 0 and self.eventstartthr is not None:
+                    if self.data[self.onsets[j]] < self.eventstartthr:
+                        continue
+                if self.sign < 0 and self.eventstartthr is not None:
+                    if self.data[self.onsets[j]] > -self.eventstartthr:
+                        continue
+                p =  scipy.signal.argrelextrema(data[self.onsets[j]:(self.onsets[j]+mwin)], nparg, order=order)[0]
+                if len(p) > 0:
+                    self.peaks.extend([int(p[0]+self.onsets[j])])
+                    amp = self.sign*(self.data[self.peaks[-1]] - data[self.onsets[j]])
 
-                     self.amplitudes.extend([amp])
-                     i_end = i_decay_pts + self.onsets[j] # distance from peak to end
-                     i_end = min(ndata, i_end)  # keep within the array limits
-                     if j < len(self.onsets)-1:
-                         if i_end > self.onsets[j+1]:
-                             i_end = self.onsets[j+1]-1 # only go to next event start
-                     move_avg, n = moving_average(self.sign*data[self.onsets[j]:i_end], n=min(avgwin, len(data[self.onsets[j]:i_end])))
-                     if self.sign > 0:
-                         pk = np.argmax(move_avg) # find peak of smoothed data
-                     else:
-                         pk = np.argmin(move_avg)
-                     self.smoothed_peaks.extend([move_avg[pk]])  # smoothed peak
-                     self.smpkindex.extend([self.onsets[j]+pk])
+                    self.amplitudes.extend([amp])
+                    i_end = i_decay_pts + self.onsets[j] # distance from peak to end
+                    i_end = min(ndata, i_end)  # keep within the array limits
+                    if j < len(self.onsets)-1:
+                        if i_end > self.onsets[j+1]:
+                            i_end = self.onsets[j+1]-1 # only go to next event start
+                    move_avg, n = moving_average(data[self.onsets[j]:i_end], n=min(avgwin, len(data[self.onsets[j]:i_end])))
+                    if self.sign > 0:
+                        pk = np.argmax(move_avg) # find peak of smoothed data
+                    else:
+                        pk = np.argmin(move_avg)
+                    self.smoothed_peaks.extend([move_avg[pk]])  # smoothed peak
+                    self.smpkindex.extend([self.onsets[j]+pk])
+                    acceptlist.append(j)
+            if len(acceptlist) < len(self.onsets):
+                print('Trimmed %d events' % (len(self.onsets)-len(acceptlist)))
+                self.onsets = self.onsets[acceptlist] # trim to only the accepted values
+                
             self.average_events()
             self.fit_average_event()
         else:
@@ -349,7 +368,7 @@ class AndradeJonas(object):
         self.tsel = tsel
         
         # setup for fit
-        init_vals = [-10.,  0.5,  4.]
+        init_vals = [self.sign*10.,  0.5,  4.]
         bounds  = [(-4000., 0.075, 0.2), (4000., 10., 50.)]
         res = scipy.optimize.least_squares(self.doubleexp, init_vals,
                         bounds=bounds, args=(self.avgeventtb[self.tsel:], self.avgevent[self.tsel:]))
@@ -360,12 +379,13 @@ class AndradeJonas(object):
         # dexpmodel = Model(self.doubleexp)
         # params = dexpmodel.make_params(A=-10.,  tau_1=0.5,  tau_2=4.0,  dc=0.)
         # self.fitresult = dexpmodel.fit(self.avgevent[tsel:],  params,  x=self.avgeventtb[tsel:])
-
+        print('fitresult: ', self.fitresult)
         self.Amplitude = self.fitresult[0]
         self.tau1 = self.fitresult[1]
         self.tau2 = self.fitresult[2]
         self.DC = 0. # best_vals[3]
         self.fitted = True
+        print('max, min fitr: ', np.min(self.best_fit), np.max(self.best_fit))
 
     def plots(self,  events=None,  title=None):
         """
@@ -407,20 +427,22 @@ class AndradeJonas(object):
         ax[1].legend(fontsize=8, loc=2, bbox_to_anchor=(1.0, 1.0))
 #        print (self.dt, self.template_tmax, len(self.template))
         # averaged events, convolution template, and fit
-        ax[2].plot(self.avgeventtb[:len(self.avgevent)],  self.avgevent, 'k', label='Average Event')
-        maxa = np.max(self.sign*self.avgevent)
-        #tpkmax = np.argmax(self.sign*self.template)
-        temp_tb = np.arange(0, len(self.template)*self.dt, self.dt)
-        #print(len(self.avgeventtb[:len(self.template)]), len(self.template))
-        ax[2].plot(self.avgeventtb[:len(self.avgevent)],  self.template[:len(self.avgevent)]*maxa/self.template_amax,  
-            'r-', label='Template')
-        ax[2].plot(self.avgeventtb[:len(self.best_fit)],  self.best_fit,  'c--', linewidth=2.0, 
-            label='Best Fit (Rise Power={0:d}\nTau1={1:.1f} Tau2={2:.1f})'.format(self.risepower, self.tau1, self.tau2))
-        if title is not None:
-            P.figure_handle.suptitle(title)
-        ax[2].set_ylabel('Averaged I (pA)')
-        ax[2].set_xlabel('T (ms)')
-        ax[2].legend(fontsize=8, loc=2, bbox_to_anchor=(1.0, 1.0))
+        if self.averaged:
+            ax[2].plot(self.avgeventtb[:len(self.avgevent)],  self.avgevent, 'k', label='Average Event')
+            maxa = np.max(self.sign*self.avgevent)
+            print('maxa: ', maxa, self.template_amax, np.max(self.avgevent), self.sign)
+            #tpkmax = np.argmax(self.sign*self.template)
+            temp_tb = np.arange(0, len(self.template)*self.dt, self.dt)
+            #print(len(self.avgeventtb[:len(self.template)]), len(self.template))
+            ax[2].plot(self.avgeventtb[:len(self.avgevent)],  self.sign*self.template[:len(self.avgevent)]*maxa/self.template_amax,  
+                'r-', label='Template')
+            ax[2].plot(self.avgeventtb[:len(self.best_fit)],  self.best_fit,  'c--', linewidth=2.0, 
+                label='Best Fit (Rise Power={0:d}\nTau1={1:.1f} Tau2={2:.1f})'.format(self.risepower, self.tau1, self.tau2))
+            if title is not None:
+                P.figure_handle.suptitle(title)
+            ax[2].set_ylabel('Averaged I (pA)')
+            ax[2].set_xlabel('T (ms)')
+            ax[2].legend(fontsize=8, loc=2, bbox_to_anchor=(1.0, 1.0))
         
         mpl.show()
 
@@ -433,7 +455,8 @@ def moving_average(a,  n=3) :
     return ret[n - 1:] / n, n
 
 
-def generate_testdata(dt,  maxt=1e4, meanrate=10,  amp=20.,  ampvar=5.,  noise=2.5, taus=[1.0, 10.0], func = None):
+def generate_testdata(dt,  maxt=1e4, meanrate=10,  amp=20.,  ampvar=5.,  
+        noise=2.5, taus=[1.0, 10.0], func = None, sign=1):
 
     tdur = 100.
     timebase = np.arange(0.,  maxt,  dt) # in ms
@@ -447,6 +470,8 @@ def generate_testdata(dt,  maxt=1e4, meanrate=10,  amp=20.,  ampvar=5.,  noise=2
     else:
         func._make_template()
         g = amp*func.template
+    g = g * sign  # negative going events if sign neegative
+
         
     testpsc = np.zeros(timebase.shape)
     eventintervals = np.random.exponential(1e3/meanrate, int(maxt))
@@ -479,14 +504,14 @@ def cb_tests():
 
 
 def aj_tests():
-    sign = -1
+    sign = 1
     trace_dur = 1e4
     dt = 0.1
     aj = AndradeJonas()
     aj.setup(tau1=1.,  tau2=5.,  dt=dt,  delay=0.0, template_tmax=trace_dur,  sign=sign)
     # generate test data
     timebase,  testpsc,  testpscn,  i_events = generate_testdata(aj.dt, maxt=trace_dur,
-            amp=20.,  ampvar=10.,  noise=5.0, taus=[1., 5.], func=None)
+            amp=20.,  ampvar=10.,  noise=5.0, taus=[1., 5.], func=None, sign=sign)
     print(int(1./aj.dt))
     aj.deconvolve(testpscn-np.mean(testpscn),  thresh=2.0, llambda=7,  order=int(1.0/aj.dt))
     aj.plots(events=None) # i_events)
