@@ -30,7 +30,7 @@ class MiniSummarize():
 
     def load_file(self, fn):
         fh = open(fn, 'rb')
-        self.d = pickle.load(fh, encoding='latin1')  # encoding needed for python 2 file written, to read in python 3
+        self.d = pickle.load(fh) # , encoding='latin1')  # encoding needed for python 2 file written, to read in python 3
         fh.close()
         self.filename = fn
         print ('Mice/cells: ', self.d.keys())
@@ -45,8 +45,10 @@ class MiniSummarize():
         self.amps = []
         self.meanamps = []
         self.intvls = []
-        
+        self.mouse = []
+        self.nevents = []
         for i, m in enumerate(self.d.keys()):
+            print ('m: ', m)
             gt = self.d[m]['genotype']
             print('gt: ', gt)
             # if gt not in self.gtypes:
@@ -55,12 +57,16 @@ class MiniSummarize():
             # if i == 0:
             #     print( self.d[m].keys())
             self.amps.append(self.d[m]['amplitude_midpoint'])
-            self.meanamps.append(np.mean(self.d[m]['amplitudes']))
-            self.intvls.append(np.mean(self.d[m]['intervals']))
+            self.meanamps.append(np.nanmean(self.d[m]['amplitudes']))
+            self.intvls.append(np.nanmean(self.d[m]['intervals']))
+            self.nevents.append(len(self.d[m]['intervals']))
+            self.mouse.append(m)
         self.pddata = pd.DataFrame({'Genotype': pd.Categorical(self.gtypes),
                                     'Amp': np.array(self.amps),
                                     'MeanAmp': np.array(self.meanamps),
-                                    'Intvls': 1000./np.array(self.intvls)
+                                    'Intvls': 1000./np.array(self.intvls),
+                                    'Nevents': np.array(self.nevents),
+                                    'Mouse': pd.Categorical(self.mouse)
                                     })
         print(self.pddata)
     # print (self.amps)
@@ -104,12 +110,12 @@ class MiniSummarize():
         sns.swarmplot(x='Genotype', y='MeanAmp', data=self.pddata, ax=P.axdict['C'])
         sns.boxplot(x='Genotype', y='MeanAmp', data=self.pddata, ax=P.axdict['C'], color="0.8")
 
-        P.axdict['A'].set_ylim(0.0, 40.)
+        P.axdict['A'].set_ylim(0.0, 25.)
         P.axdict['A'].set_ylabel('Event Frequency (Hz)')
-        P.axdict['B'].set_ylim(0.0, 50.)
+        P.axdict['B'].set_ylim(0.0, 30.)
         P.axdict['B'].set_ylabel('Median Amplitude (pA)')
         P.axdict['C'].set_ylabel('Mean Amplitude (pA)')
-        P.axdict['C'].set_ylim(0.0, 50.)
+        P.axdict['C'].set_ylim(0.0, 30.)
         
         # P.axdict['A'].set_xlabel('Group')
         # P.axdict['B'].set_xlabel('Group')
