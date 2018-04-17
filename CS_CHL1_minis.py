@@ -1,6 +1,6 @@
 basepath = '/Users/pbmanis/Documents/data/CHL1/'
 
-datasets = {
+datasets_short = {
 	'm2a': {'dir': '2017.11.01_000/slice_000/cell_000', 
         'prots': [0], 'exclist': {0: [0,1 ]},
         'thr': 2.5, 'rt': 0.35, 'decay': 4., 'G': 'WT'},
@@ -43,6 +43,65 @@ datasets = {
     'm8c': {'dir': '2017.11.21_000/slice_000/cell_002',
         'prots': [0, 1, 2], 'exclist': {2: [1,2]},
         'thr': 3, 'rt': 0.35, 'decay': 4., 'G': 'CHL1'},
+}
+
+datasets = {
+	'm2a': {'dir': '2017.11.01_000/slice_000/cell_000', 
+        'prots': [0], 'exclist': {0: [0,1 ]},
+        'thr': 2.5, 'rt': 0.35, 'decay': 4., 'G': 'WT'},
+	'm2c': {'dir': '2017.11.01_000/slice_000/cell_006',
+        'prots': [0, 1, 2, 3], 'exclist': {2: [7], 3:[1]},
+        'thr': 2.5, 'rt': 0.35, 'decay': 4., 'G': 'WT'},
+    'm4a': {'dir': '2017.11.06_000/slice_000/cell_000',
+        'prots': [0, 1], 'exclist': {0: [0,1], 1: [1, 6,7,8,9]},
+        'thr': 2.5, 'rt': 0.35, 'decay': 4., 'G': 'WT'},
+    'm4b': {'dir': '2017.11.06_000/slice_000/cell_001',
+        'prots': [0, 1, 2, 3], 'exclist': [],
+        'thr': 2.5, 'rt': 0.35, 'decay': 4., 'G': 'WT'},
+    'm5a': {'dir': '2017.11.07_000/slice_000/cell_000',
+        'prots': [0, 1, 2, 3, 4, 5], 'exclist': [],
+        'thr': 2.5, 'rt': 0.35, 'decay': 4., 'G': 'CHL1'},
+    'm5b': {'dir': '2017.11.07_000/slice_000/cell_001',
+        'prots': [0, 1, 2], 'exclist': {0: [4]},
+        'thr': 2.5, 'rt': 0.35, 'decay': 4., 'G': 'CHL1'},
+    'm5c': {'dir': '2017.11.07_000/slice_001/cell_000',
+        'prots': [0], 'exclist': {0: [0]},
+        'thr': 2.0, 'rt': 0.4, 'decay': 5., 'G': 'CHL1'},
+    'm6a': {'dir': '2017.11.09_000/slice_000/cell_000',
+        'prots': [0], 'exclist': {0: [0]},
+        'thr': 2.5, 'rt': 0.35, 'decay': 4., 'G': 'CHL1'},
+    'm7a': {'dir': '2017.11.20_000/slice_000/cell_000',
+        'prots': [0, 1, 2, 3, 4], 'exclist': [],
+        'thr': 2.5, 'rt': 0.35, 'decay': 4., 'G': 'CHL1'},
+    'm7b': {'dir': '2017.11.20_000/slice_000/cell_001',
+        'prots': [0, 1, 2, 3, 4, 5], 'exclist': {0: [0,1], 2:[1,2,8]},
+        'thr': 2.5, 'rt': 0.35, 'decay': 4., 'G': 'CHL1'},
+    'm7c': {'dir': '2017.11.20_000/slice_000/cell_002',
+        'prots': [0], 'exclist': [],
+        'thr': 3.5, 'rt': 0.35, 'decay': 4., 'G': 'CHL1'},
+    'm8a': {'dir': '2017.11.21_000/slice_000/cell_000',
+        'prots': [0, 1, 2], 'exclist': {0: [0], 1: [0,1]},  # needs cleaner processing...
+        'thr': 2.5, 'rt': 0.35, 'decay': 4., 'G': 'CHL1'},
+    'm8b': {'dir': '2017.11.21_000/slice_000/cell_001',
+        'prots': [0, 1, 2, 3, 4], 'exclist': {0: [3,4], 1: [5], 2: [2,3,4, 7], 3: [0,1,2], 4: [4,5]},
+        'thr': 2.5, 'rt': 0.35, 'decay': 4., 'G': 'CHL1'},
+    'm8c': {'dir': '2017.11.21_000/slice_000/cell_002',
+        'prots': [0, 1, 2], 'exclist': {2: [1,2]},
+        'thr': 3, 'rt': 0.35, 'decay': 4., 'G': 'CHL1'},
+
+    'm8a': {'dir': '2017.11.21_000/slice_000/cell_000', 'prots': [0, 1, 2], 'exclist': [], 'thr': 2.5, 'rt': 0.35, 'decay': 4., 'G': 'CHL1'},
+    'm8b': {'dir': '2017.11.21_000/slice_000/cell_001', 'prots': [0, 1, 2, 3, 4], 'exclist': [], 'thr': 2.5, 'rt': 0.35, 'decay': 4., 'G': 'CHL1'},
+    'm8c': {'dir': '2017.11.21_000/slice_000/cell_002', 'prots': [0, 1, 2], 'exclist': [], 'thr': 3, 'rt': 0.35, 'decay': 4., 'G': 'CHL1'},
+    'm9a': {'dir': '2018.03.28_000/slice_000/cell_000', 'prots': [0, 1, 2, 3], 'exclist': [], 'thr': 3, 'rt': 0.35, 'decay': 4., 'G': 'WT'},
+    'm9b': {'dir': '2018.03.28_000/slice_000/cell_001', 'prots': [0, 1, 2], 'exclist': [], 'thr': 3, 'rt': 0.35, 'decay': 4., 'G': 'WT'},
+    'm9c': {'dir': '2018.03.28_000/slice_000/cell_002', 'prots': [0, 4, 5, 6, 7], 'exclist': {4: [5,6,7,8,9]}, 'thr': 2.5, 'rt': 0.35, 'decay': 4., 'G': 'WT'},
+    'm10a': {'dir': '2018.04.05_000/slice_000/cell_000', 'prots': [0, 1, 2, 3], 'exclist': [], 'thr': 3, 'rt': 0.35, 'decay': 4., 'G': 'WT'},
+    'm10b': {'dir': '2018.04.05_000/slice_000/cell_001', 'prots': [0, 1, 2, 3], 'exclist': [], 'thr': 3, 'rt': 0.35, 'decay': 4., 'G': 'WT'},
+    'm10c': {'dir': '2018.04.05_000/slice_000/cell_002', 'prots': [0, 1, 2], 'exclist': [], 'thr': 3, 'rt': 0.35, 'decay': 4., 'G': 'WT'},
+    'm10d': {'dir': '2018.04.05_000/slice_000/cell_003', 'prots': [0, 1, 2], 'exclist': [], 'thr': 3, 'rt': 0.35, 'decay': 4., 'G': 'WT'},
+    'm10e': {'dir': '2018.04.05_000/slice_000/cell_004', 'prots': [0, 1, 2, 3], 'exclist': [], 'thr': 3, 'rt': 0.35, 'decay': 4., 'G': 'WT'},
+    'm10f': {'dir': '2018.04.05_000/slice_000/cell_005', 'prots': [0, 1, 2, 3], 'exclist': [], 'thr': 3, 'rt': 0.35, 'decay': 4., 'G': 'WT'},
+
 }
 
 excludes = {
