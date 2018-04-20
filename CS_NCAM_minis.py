@@ -13,13 +13,13 @@ datasets = {'m1a': {'dir': '2017.04.25_000/slice_000/cell_001', 'prots': [0,1,3]
             'm2a': {'dir': '2017.05.02_000/slice_000/cell_000/', 'prots': [0,1,2], 
 				'thr': 1.75, 'rt': 0.32, 'decay': 5., 'G': 'F/+', 'exclist': []},
             'm2b': {'dir': '2017.05.02_000/slice_000/cell_001', 'prots': [0,1,2], 
-				'thr': 1.75, 'rt': 0.35, 'decay': 4., 'G': 'F/+', 'exclist': []},
+				'thr': 1.75, 'rt': 0.35, 'decay': 4., 'G': 'F/+', 'exclist': {1: [4, 5, 6], 2: [8]}},
             'm2c': {'dir': '2017.05.02_000/slice_000/cell_002', 'prots': [0,1,2], 
 				'thr': 1.75, 'rt': 0.35, 'decay': 5., 'G': 'F/+', 'exclist': []},
             'm3a': {'dir': '2017.05.04_000/slice_000/cell_000', 'prots': [0,1,2], 
-				'thr': 1.75, 'rt': 0.35, 'decay': 5., 'G': 'F/+', 'exclist': []},
+				'thr': 1.75, 'rt': 0.35, 'decay': 5., 'G': 'F/+', 'exclist': {0: [0, 1,6], 1:[3,5], 2: [4,6,8]}},
             'm4a': {'dir': '2017.05.05_000/slice_000/cell_000', 'prots': [0,1,2], 
-				'thr': 1.75, 'rt': 0.35, 'decay': 5., 'G': 'F/+', 'exclist': []},
+				'thr': 1.75, 'rt': 0.35, 'decay': 5., 'G': 'F/+', 'exclist': {2: [1,2, 7, 9]}},
             'm5a': {'dir': '2017.05.11_000/slice_000/cell_000', 'prots': [0,1,2], 
 				'thr': 1.75, 'rt': 0.35, 'decay': 4., 'G': 'F/+', 'exclist': []},
             'm5b': {'dir': '2017.05.11_000/slice_000/cell_000', 'prots': [0,1,2], 
@@ -27,20 +27,20 @@ datasets = {'m1a': {'dir': '2017.04.25_000/slice_000/cell_001', 'prots': [0,1,3]
             'm6a': {'dir': '2017.07.05_000/slice_000/cell_001', 'prots': [2,3,4], 
 				'thr': 2.5, 'rt': 0.35, 'decay': 5., 'G': 'F/F', 'exclist': []},  # unusually low rate
             'm7a': {'dir': '2017.07.06_000/slice_000/cell_000', 'prots': [1,2,3], 
-				'thr': 1.75, 'rt': 0.35, 'decay': 5., 'G': 'F/F', 'exclist': []},
+				'thr': 1.75, 'rt': 0.35, 'decay': 5., 'G': 'F/F', 'exclist': {1: [5], 2: [2], 3: [5]}},
             'm7b': {'dir': '2017.07.06_000/slice_000/cell_001', 'prots': [0,1,2], 
 				'thr': 1.75, 'rt': 0.35, 'decay': 6., 'G': 'F/F', 'exclist': []},
             'm7c': {'dir': '2017.07.06_000/slice_000/cell_002', 'prots': [1,2], 
 				'thr': 2.0, 'rt': 0.35, 'decay': 5., 'G': 'F/F', 'exclist': []},
             'm7d': {'dir': '2017.07.06_000/slice_000/cell_003', 'prots': [0,1,6], 
-				'thr': 1.75, 'rt': 0.35, 'decay': 5., 'G': 'F/F', 'exclist': []},
+				'thr': 1.75, 'rt': 0.35, 'decay': 5., 'G': 'F/F', 'exclist': {6: [7,8,9]}},
            # compared to others, e is an unstable recording
            # 'm7e': {'dir': '2017.07.06_000/slice_000/cell_004', 'prots': [0,1,2], 
 			#	'thr': 2.5, 'rt': 0.35, 'decay': 5., 'G': 'F/F', 'exclist': []},
             'm8a': {'dir': '2017.07.07_000/slice_000/cell_000', 'prots': [0,1,2], 
 				'thr': 1.5, 'rt': 0.35, 'decay': 5., 'G': 'F/F', 'exclist': []},
             'm8b': {'dir': '2017.07.07_000/slice_000/cell_001', 'prots': [0,1,2], 
-				'thr': 1.75, 'rt': 0.35, 'decay': 5., 'G': 'F/F', 'exclist': []},
+				'thr': 1.75, 'rt': 0.35, 'decay': 5., 'G': 'F/F', 'exclist': {0: [1], 2: [0,5]}},
             # M9: some data has big noise, not acceptable
             #'m9a': {'dir': '2017.07.19_000/slice_000/cell_000', 'prots': [2,3,4], 
 			#	'thr': 1.75, 'rt': 0.35, 'decay': 5., 'G': 'F/+', 'exclist': []},
@@ -61,14 +61,14 @@ datasets = {'m1a': {'dir': '2017.04.25_000/slice_000/cell_001', 'prots': [0,1,3]
 				'thr': 2.25, 'rt': 0.35, 'decay': 3.5, 'G': 'F/F', 'exclist': []},
             # m10c, run 2: suspicious bursts
             'm10d': {'dir': '2017.07.27_000/slice_000/cell_003', 'prots': [0,1,2], 
-				'thr': 1.5, 'rt': 0.35, 'decay': 4., 'G': 'F/F', 'exclist': []},
+				'thr': 1.5, 'rt': 0.35, 'decay': 4., 'G': 'F/F', 'exclist': {0: [4, 9], 1: [8]}},
             #'m10e': {'dir': '2017.07.27_000/slice_000/cell_004', 'prots': [1], 
 			#	'thr': 1.5, 'rt': 0.35, 'decay': 4., 'G': 'F/F', 'exclist': []},  # unstable and bursty
 #
 #  more:
 #
             'm11a': {'dir': '2017.08.10_000/slice_000/cell_000', 'prots': [0,1,2], 
-				'thr': 1.25, 'rt': 0.35, 'decay': 6, 'G': 'F/F', 'exclist': []},
+				'thr': 1.25, 'rt': 0.35, 'decay': 6, 'G': 'F/F', 'exclist': {1: [0]}},
             'm12a': {'dir': '2017.08.11_000/slice_000/cell_000', 'prots': [0,1,2], 
 				'thr': 1.0, 'rt': 0.35, 'decay': 4., 'G': 'F/F', 'exclist': []},
             'm13b': {'dir': '2017.08.15_000/slice_000/cell_001', 'prots': [1,2], 

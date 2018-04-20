@@ -2,14 +2,41 @@ from __future__ import print_function
 
 """
 Analysis of miniature synaptic potentials
-The analysis is driven by an imported dictionary.
 Provides measure of event amplitude distribution and event frequency distribution
+The analysis is driven by an imported dictionary.
 
-Requires a bunch of Manis' support routines, including ephysanalysis module to
-read acq4 files; pylibrary utilities, digital filtering, clcments)bekkers for analysis 
-of minis (we use the Andrade_Jonas algorithm for deconvolution in this pass).
+Example for the data table:
+self.basedatadir = '/Volumes/Pegasus/ManisLab_Data3/Sullivan_Chelsea/miniIPSCs'
 
-Output summary is read by mini_summary_plots.py
+datasets = {'m1a': {'dir': '2017.04.25_000/slice_000/cell_001', 'prots': [0,1,3], 
+				'thr': 1.75, 'rt': 0.35, 'decay': 6., 'G': 'F/+', 'exclist': []},
+            'm1b': {'dir': '2017.04.25_000/slice_000/cell_002', 'prots': [7], 
+				'thr': 1.75, 'rt': 0.35, 'decay': 6., 'G': 'F/+', 'exclist': []},
+            'm2a': {'dir': '2017.05.02_000/slice_000/cell_000/', 'prots': [0,1,2], 
+				'thr': 1.75, 'rt': 0.32, 'decay': 5., 'G': 'F/+', 'exclist': []},
+            'm2b': {'dir': '2017.05.02_000/slice_000/cell_001', 'prots': [0,1,2], 
+				'thr': 1.75, 'rt': 0.35, 'decay': 4., 'G': 'F/+', 'exclist': {1: [4, 5, 6], 2: [8]}},
+            'm2c': {'dir': '2017.05.02_000/slice_000/cell_002', 'prots': [0,1,2], 
+        }
+
+Where:
+each dict key indicates a cell from a mouse (mice are numbered, cells are lettered)
+'dir': The main cell directory, relative to the base directory,
+'prots': a list of the protocols to be analyzed,
+'exclist': a dict of the protocols that have traces to be excluded
+    The excluded traces are in a tuple or list for each protocol.
+    For example, exclist: {0 : [1,2], 1: [3,4,5]} results in the exclusion of
+        traces 1 and 2 from protocol run 0, and traces 3, 4 and 5 from protocol run 1
+'thr' : SD threshold for event detection (algorithm dependent)
+'rt' : rise time for template (in msec)
+'decay': decay time constant for the template (in msec)
+'G' : group identifier (e.g, genotype, treatment, etc.)
+
+Requires asome of Manis' support libraries/modules, including:
+    ephysanalysis module  (git clone https://github/pbmanis/ephysanalysis)
+    pylibrary utilities, (git clone https://github/pbmanis/ephysanalysis)
+     
+Output summary is a Python pickle file (.p extension) that isread by mini_summary_plots.py
 
 Paul B. Manis, Ph.D. Jan-March 2018.
 
@@ -37,32 +64,6 @@ from matplotlib.backends.backend_pdf import PdfPages
 rc('text', usetex=False)
 rc('font',**{'family':'sans-serif','sans-serif':['Verdana']})
 
-# Example for the data table:
-# self.basedatadir = '/Volumes/Pegasus/ManisLab_Data3/Sullivan_Chelsea/miniIPSCs'
-# 
-# datasets = {'m2a': {'dir': '2017.11.01_000/slice_000/cell_000',
-#         'prots': [0], 'exclist': {0: [0,1 ]},
-#         'thr': 2.5, 'rt': 0.35, 'decay': 4., 'G': 'WT'},
-#     'm2c': {'dir': '2017.11.01_000/slice_000/cell_006',
-#         'prots': [0, 1, 2, 3], 'exclist': {2: [7], 3:[1]},
-#         'thr': 2.5, 'rt': 0.35, 'decay': 4., 'G': 'WT'},
-#     'm4a': {'dir': '2017.11.06_000/slice_000/cell_000',
-#         'prots': [0, 1], 'exclist': {0: [0,1], 1: [1, 6,7,8,9]},
-#         'thr': 2.5, 'rt': 0.35, 'decay': 4., 'G': 'WT'},
-#     }
-#
-# Where:
-# each dict key indicates a cell from a mouse (mice are numbered, cells are lettered)
-# 'dir': The main cell directory, relative to the base directory,
-# 'prots': a list of the protocols to be analyzed,
-# 'exclist': a dict of the protocols that have traces to be excluded
-#     The excluded traces are in a tuple or list for each protocol.
-# 'thr' : SD threshold for event detection (algorithm dependent)
-# 'rt' : rise time for template (in msec)
-# 'decay': decay time constant for the template (in msec)
-# 'G' : group identifier (e.g, genotype, treatment, etc.)
-# 
-# 
 
 class DataPlan():
     def __init__(self, datadictname):
@@ -74,8 +75,6 @@ class DataPlan():
         self.datasource = datadictname
         self.datasets = data['datasets']
         self.datadir = data['basepath']
-
-
 
 
 def splitall(path):
@@ -109,12 +108,23 @@ def splitall(path):
 
 class MiniAnalysis():
     def __init__(self, dataplan):
+        """
+        Perform detection of miniature synaptic events, and some analysis
+        
+        Parmaeters
+        ----------
+        dataplan : object
+            a dataplan object, with 
+                datasource: the name of the file holding the dict
+                datadir : the path to the data itself
+                datasets : the dict with information driving the analysis
+        """
 
         self.datasource = dataplan.datasource
         self.basedatadir = dataplan.datadir
         self.datasets = dataplan.datasets
     
-    def analyze_all(self, fofilename, check=False):
+    def analyze_all(self, fofilename, check=False, mode='aj', engine='cython'):
         """
         Wraps analysis of individual data sets, writes plots to 
         a file named "summarydata%s.p % self.datasource" in pickled format.
@@ -135,7 +145,7 @@ class MiniAnalysis():
         with PdfPages(fofilename) as pdf:
             summarydata = {}
             for id, mouse in enumerate(sorted(self.datasets.keys())):
-                results = self.analyze_one(mouse, pdf, maxprot=10, arreader=acqr, check=check)
+                results = self.analyze_one(mouse, pdf, maxprot=10, arreader=acqr, check=check, mode=mode, engine=engine)
                 summarydata[mouse] = results
         fout = 'summarydata_%s.p' % self.datasource
         fh = open(fout, 'wb')
@@ -143,7 +153,7 @@ class MiniAnalysis():
         fh.close()
 
 
-    def analyze_one(self, mouse, pdf, maxprot=10, arreader=None, check=False):
+    def analyze_one(self, mouse, pdf, maxprot=10, arreader=None, check=False, mode='aj', engine='cython'):
         """
         Provide analysis of one entry in the data table using the Andrade_Joans algorithm
         and fitting distributions. 
@@ -171,8 +181,6 @@ class MiniAnalysis():
             acqr = EP.acq4read.Acq4Read(dataname='Clamp1.ma')  # only if we don't already have one
         else:
             acqr = arreader
-        print('arreader: ', arreader)
-        print('acqr: ', acqr)
         rasterize = True    # set True to rasterize traces to reduce size of final document
                             # set false for pub-quality output (but large size)
         dt = 0.1
@@ -181,7 +189,7 @@ class MiniAnalysis():
         genotype = mousedata['G']
         excl = mousedata['exclist']  # get the exclusion list
         cell_summary={'intervals': [], 'amplitudes': [], 'protocols': [], 'eventcounts': [], 'genotype': genotype, 'mouse': mouse, 
-            'amplitude_midpoint': 0.}
+            'amplitude_midpoint': 0., 'holding': [], 'averaged': [], }
     
         if not check:
             sizer = OrderedDict([('A', {'pos': [0.12, 0.8, 0.35, 0.60]}),
@@ -279,14 +287,25 @@ class MiniAnalysis():
             time_base = acqr.time_base
             dt = 1000.*acqr.sample_interval  # in sec... so convert to msec
             data = data*1e12  # convert to pA
-            aj = minis.AndradeJonas()
             time_base = time_base*1000.
             maxt = np.max(time_base)
+            if mode == 'aj':
+                aj = minis.AndradeJonas()
+                aj.setup(tau1=mousedata['rt'], tau2=mousedata['decay'],
+                        template_tmax=maxt, dt=dt, delay=0.0, sign=-1,
+                        risepower=1.0)
+            elif mode == 'cb':
+                aj = minis.ClementsBekkers()
+                aj.setup(tau1=mousedata['rt'], tau2=mousedata['decay'],
+                            template_tmax=3.0*mousedata['decay'], dt=dt, delay=0.0, sign=-1,
+                            risepower=1.0)
+                aj.set_cb_engine(engine)
+            else:
+                raise ValueError('Mode must be aj or cb for event detection')
     #        print('mousedata rt: ', mousedata['rt'], '   mousedata decay: ', mousedata['decay'])
-            aj.setup(tau1=mousedata['rt'], tau2=mousedata['decay'], template_tmax=maxt, dt=dt, delay=0.0, sign=-1)
+
             mwin = int(2*(4.)/dt)
             order = int(1.0/dt)
-        
             ntraces = data.shape[0]
             tracelist = range(ntraces)
             print ('  tracelist: ', tracelist, ' exclude: ', exclude_traces)
@@ -298,7 +317,8 @@ class MiniAnalysis():
                 ypq = (ntr*i)*ypqspan
                 linefit= np.polyfit(time_base, data[i], 1)
                 refline = np.polyval(linefit, time_base)
-                data[i] = data[i] - refline
+                holding = np.mean(data[i])  # get the mean holding current for this trace
+                data[i] = data[i] - refline  # linear correction
                 odata = data[i].copy()
                 ax0.text(-1200, yp, '%03d %d' % (dprot, i), fontsize=8)  # label the trace
                 if i in exclude_traces:  # plot the excluded traces, but do not analyze them
@@ -306,19 +326,21 @@ class MiniAnalysis():
                     continue
                 nused = nused + 1
             
-                frs, freqs = PU.pSpectrum(data[i], samplefreq=1000./dt)
+               # frs, freqs = PU.pSpectrum(data[i], samplefreq=1000./dt)
                 # NotchFilter(signal, notchf=[60.], Q=90., QScale=True, samplefreq=None):
-                data[i] = DF.NotchFilter(data[i], [60., 120., 180., 240., 300., 360, 420., 
-                                480., 660., 780., 1020., 1140., 1380., 1500., 4000.], Q=20., samplefreq=1000./dt)
-                dfilt = DF.SignalFilter_HPFButter(np.pad(data[i], (len(data[i]), len(data[i])), mode='median', ), 2.5, 1000./dt, NPole=4)
+                # data[i] = DF.NotchFilter(data[i], [60., 120., 180., 240., 300., 360, 420.,
+                #                 480., 660., 780., 1020., 1140., 1380., 1500., 4000.], Q=20., samplefreq=1000./dt)
+                #dfilt = DF.SignalFilter_HPFButter(np.pad(data[i], (len(data[i]), len(data[i])), mode='median', ), 2.5, 1000./dt, NPole=4)
+                dfilt = data[i]
                 dfilt = DF.SignalFilter_LPFButter(dfilt, 2800., 1000./dt, NPole=4)
     #            frsfilt, freqsf = PU.pSpectrum(dfilt, samplefreq=1000./dt)
-                data[i] = dfilt[len(data[i]):2*len(data[i])]
+                #data[i] = dfilt[len(data[i]):2*len(data[i])]
 
-                aj.deconvolve(data[i], thresh=float(mousedata['thr']), llambda=10., order=order)
+                if mode == 'aj':
+                    aj.deconvolve(data[i], thresh=float(mousedata['thr']), llambda=10., order=order)
+                else:
+                    aj.cbTemplateMatch(data[i],  threshold=float(mousedata['thr']), order=order)
 
-                # summarize data
-                aj.summarize(data[i])
                 #aj.plots()
                 intervals = np.diff(aj.timebase[aj.onsets])
                 cell_summary['intervals'].extend(intervals)
@@ -330,9 +352,12 @@ class MiniAnalysis():
                 #          peaks.extend([int(p[0]+aj.onsets[j])])
                 #          amp = aj.sign*data[i][peaks[-1]] - aj.sign*data[i][aj.onsets[j]]
                 #          amps.extend([amp])
+                cell_summary['averaged'].extend([{'tb': aj.avgeventtb, 'avg': aj.avgevent, 'fit': {'amplitude': aj.Amplitude,
+                    'tau1': aj.tau1, 'tau2': aj.tau2, 'risepower': aj.risepower}, 'best_fit': aj.best_fit}])
                 cell_summary['amplitudes'].extend(sign*data[i][aj.smpkindex])
                 cell_summary['eventcounts'].append(len(intervals))
                 cell_summary['protocols'].append((nprot, i))
+                cell_summary['holding'].append(holding)
                 ax0.plot(aj.timebase, odata + yp ,'c-', linewidth=0.25, alpha=0.25, rasterized=rasterize)
                 ax0.plot(aj.timebase, data[i] + yp, 'k-', linewidth=0.25, rasterized=rasterize)
                 ax0.plot(aj.timebase[aj.smpkindex], data[i][aj.smpkindex] + yp, 'ro', markersize=1.75, rasterized=rasterize)
@@ -434,6 +459,11 @@ class MiniAnalysis():
         return cell_summary
 
 if __name__ == '__main__':
+    
+    # example of how to use the analysis in conjunction with a data plan
+    # usually this kind of code will be in a separate directory where the specific
+    # runner and results for a given experiment are located.
+    
     parser = argparse.ArgumentParser(description='mini synaptic event analysis')
     parser.add_argument('datadict', type=str,
                         help='data dictionary')
@@ -441,6 +471,9 @@ if __name__ == '__main__':
                         help='just do one')
     parser.add_argument('-c', '--check', action='store_true',
                         help='Check for files; no analysis')
+    parser.add_argument('-m', '--mode', type=str, default='aj', dest='mode',
+                        choices=['aj', 'cb'],
+                        help='just do one')
 
     args = parser.parse_args()
 
@@ -449,6 +482,11 @@ if __name__ == '__main__':
     MI = MiniAnalysis(dataplan)
     
     if args.do_one == '': # no second argument, run all data sets
-        MI.analyze_all(fofilename='all_%s.pdf' % args.datadict, check=args.check)
+        MI.analyze_all(fofilename='all_%s.pdf' % args.datadict, check=args.check, mode=args.mode)
     else:
-        MI.analyze_one(args.do_one, pdf=None, maxprot=10, check=args.check)
+        summarydata = {}
+        summarydata[args.do_one] = MI.analyze_one(args.do_one, pdf=None, maxprot=10, check=args.check, mode=args.mode)
+        fout = 'summarydata_%s.p' % args.do_one
+        fh = open(fout, 'wb')
+        pickle.dump(summarydata, fh)
+        fh.close()

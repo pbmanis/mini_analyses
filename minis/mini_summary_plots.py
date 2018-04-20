@@ -9,6 +9,7 @@ Paul B. Manis, 3/2018
 
 import os
 import sys
+import re
 import pickle
 import numpy as np
 from collections import OrderedDict
@@ -16,6 +17,8 @@ from matplotlib import rc
 import matplotlib.pyplot as mpl
 import pandas as pd
 import seaborn as sns
+import scipy.stats
+
 rc('text', usetex=False)
 rc('font',**{'family':'sans-serif','sans-serif':['Helvetica']})
 
@@ -39,36 +42,80 @@ class MiniSummarize():
         self.group_names = groups 
         # ['WT', 'CHL1']
         #self.groups = ['F/+', 'F/F']
-    
+        
+    def average_taus(self, d, t):
+        tau = np.zeros(len(d))
+        for i in range(len(d)):
+            tau[i] = d[i]['fit'][t]
+        return np.mean(tau)
+
     def compute_means(self):
         self.gtypes = []
+        self.holding = []
         self.amps = []
         self.meanamps = []
         self.intvls = []
         self.mouse = []
         self.nevents = []
+        self.tau1 = []
+        self.tau2 = []
         for i, m in enumerate(self.d.keys()):
-            print ('m: ', m)
+            #print ('m: ', m)
             gt = self.d[m]['genotype']
-            print('gt: ', gt)
+            #print('gt: ', gt)
             # if gt not in self.gtypes:
 
             self.gtypes.append(gt)
             # if i == 0:
             #     print( self.d[m].keys())
-            self.amps.append(self.d[m]['amplitude_midpoint'])
+            self.holding.append(self.d[m]['holding'])
+            self.amps.append(np.nanmean(self.d[m]['amplitude_midpoint']))
             self.meanamps.append(np.nanmean(self.d[m]['amplitudes']))
             self.intvls.append(np.nanmean(self.d[m]['intervals']))
             self.nevents.append(len(self.d[m]['intervals']))
+            self.tau1.append(self.average_taus(d[m]['averaged'], 'tau1'))
+            self.tau2.append(self.average_taus(d[m]['averaged'], 'tau2'))
             self.mouse.append(m)
         self.pddata = pd.DataFrame({'Genotype': pd.Categorical(self.gtypes),
+                                    'Holding': np.array(self.holding),
                                     'Amp': np.array(self.amps),
                                     'MeanAmp': np.array(self.meanamps),
                                     'Intvls': 1000./np.array(self.intvls),
                                     'Nevents': np.array(self.nevents),
+                                    'tau1' : np.array(self.tau1),
+                                    'tau2' : np.array(self.tau2),
                                     'Mouse': pd.Categorical(self.mouse)
                                     })
-        print(self.pddata)
+        ps = str(self.pddata)
+        ps = re.sub(' +', '\t', ps)
+       # print(ps)
+        df = self.pddata
+        g1 = []
+        g2 = []
+        for i in range(len(self.gtypes)):
+            if self.gtypes[i] == "F/+":
+                g1.append(self.amps[i])
+            else:
+                g2.append(self.amps[i])
+
+        gm1 = []
+        gm2 = []
+        for i in range(len(self.gtypes)):
+            if self.gtypes[i] == "F/+":
+                gm1.append(self.meanamps[i])
+            else:
+                gm2.append(self.meanamps[i])
+      #  print( g1, g2)
+        t, p = scipy.stats.ttest_ind(g1, g2, axis=0, equal_var=False, nan_policy='propagate')
+        print('F/+: u = {0:.3f} (SD={1:.3f})'.format(np.mean(g1), np.std(g1)))
+        print('F/F: u = {0:.3f} (SD={1:.3f})'.format(np.mean(g2), np.std(g2)))
+        print('t= {0:.3f}, p={1:.3f}'.format(t, p))
+
+        tm, pm = scipy.stats.ttest_ind(gm1, gm2, axis=0, equal_var=False, nan_policy='propagate')
+        print('F/+: u = {0:.3f} (SD={1:.3f})'.format(np.mean(gm1), np.std(gm1)))
+        print('F/F: u = {0:.3f} (SD={1:.3f})'.format(np.mean(gm2), np.std(gm2)))
+        print('t= {0:.3f}, p={1:.3f}'.format(tm, pm))
+
     # print (self.amps)
     # print (self.meanamps)
     # print (self.intvls)
@@ -123,7 +170,7 @@ class MiniSummarize():
         # P.axdict['B'].set_xlim(0.5, 2.5)
         # P.axdict['B'].set_xlim(0.5, 2.5)
 
-        P.axdict['A'].legend()
+       # P.axdict['A'].legend()
         P.figure_handle.suptitle(self.filename.replace('_', '\_'))
         
         

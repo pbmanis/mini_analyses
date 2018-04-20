@@ -1,9 +1,9 @@
 basepath = '/Users/pbmanis/Documents/data/CHL1/'
-basepath = '/Volumes/Pegasus/ManisLab_Data3/Sullivan_Chelsea/miniIPSCs/CHL1'
+#basepath = '/Volumes/Pegasus/ManisLab_Data3/Sullivan_Chelsea/miniIPSCs/CHL1'
 
 # datasets_short = {
 #     'm2a': {'dir': '2017.11.01_000/slice_000/cell_000',
-#         'prots': [0], 'exclist': {0: [0,1 ]},
+#         'prots': :[0], 'exclist': {0: [0,1 ]},
 #         'thr': 2.5, 'rt': 0.35, 'decay': 4., 'G': 'WT'},
 #     'm2c': {'dir': '2017.11.01_000/slice_000/cell_006',
 #         'prots': [0, 1, 2, 3], 'exclist': {2: [7], 3:[1]},

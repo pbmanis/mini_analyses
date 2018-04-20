@@ -11,6 +11,9 @@ import clements_bekkers
 import digital_filters
 import make_table
 import minis_methods
+import mini_analysis
+#import mini_summary
+import mini_summary_plots
 import clembek
 
 

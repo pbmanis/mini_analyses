@@ -28,10 +28,6 @@ else:
     raise ValueError('Computer name not in known list of names to set base path')
 
 
-import CS_CHL1_minis as cs
-basedir = cs.basepath
-datasets = cs.datasets
-#print( datasets)
 
 class Summary():
     def __init__(self):
@@ -203,6 +199,10 @@ class Summary():
 
 
 if __name__ == '__main__':
+    import CS_CHL1_minis as cs
+    basedir = cs.basepath
+    datasets = cs.datasets
+    #print( datasets)
     s = Summary()
     sign = -1 # pick negative going events
     if len(sys.argv) == 1:
