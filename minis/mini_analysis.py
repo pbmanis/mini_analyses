@@ -123,7 +123,44 @@ class MiniAnalysis():
         self.datasource = dataplan.datasource
         self.basedatadir = dataplan.datadir
         self.datasets = dataplan.datasets
-    
+        self.dataplan_data = dataplan.data
+        try:
+            self.global_threshold = dataplan.data['global_threshold']
+            self.override_threshold = True
+        except:
+            self.override_threshold = False
+        try:
+            self.global_decay = dataplan.data['global_decay']
+            self.override_decay = True
+        except:
+            self.override_decay = False
+            
+        try:
+            self.filter = dataplan.data['notch_and_hpf_filter']
+        except:
+            self.filter = False
+
+
+    # from acq4 functions:
+    def measure_baseline(self, data, threshold=2.0, iterations=2):
+        """Find the baseline value of a signal by iteratively measuring the median value, then excluding outliers."""
+        data = data.view(np.ndarray)
+        med = np.median(data)
+        if iterations > 1:
+            std = data.std()
+            thresh = std * threshold
+            arr = np.ma.masked_outside(data, med - thresh, med + thresh)
+            try:
+                len(arr.mask)  # could be an array or just a boolean
+            except:
+                if arr.mask == False:  # nothing to mask... 
+                    return med
+            if len(arr) == 0:
+                raise Exception("Masked out all data. min: %f, max: %f, std: %f" % (med - thresh, med + thresh, std))
+            return self.measure_baseline(arr[~arr.mask], threshold, iterations-1)
+        else:
+            return med
+            
     def analyze_all(self, fofilename, check=False, mode='aj', engine='cython'):
         """
         Wraps analysis of individual data sets, writes plots to 
@@ -152,7 +189,6 @@ class MiniAnalysis():
         pickle.dump(summarydata, fh)
         fh.close()
 
-
     def analyze_one(self, mouse, pdf, maxprot=10, arreader=None, check=False, mode='aj', engine='cython'):
         """
         Provide analysis of one entry in the data table using the Andrade_Joans algorithm
@@ -172,7 +208,6 @@ class MiniAnalysis():
             If true, run just checks for the existence of the data files, 
             but does no analysis.    
 
-    
         Returns
         -------
             cell summary dictionary for the 'mouse' entry. 
@@ -185,11 +220,20 @@ class MiniAnalysis():
                             # set false for pub-quality output (but large size)
         dt = 0.1
         mousedata = self.datasets[mouse]
+        if self.override_threshold:
+            mousedata['thr'] = self.global_threshold  # override the threshold setting
+        if self.override_decay:
+            mousedata['decay'] = self.global_decay  # override decay settings
+            
+        self.sign = 1
+        if 'sign' in self.dataplan_data:
+            self.sign = int(self.dataplan_data['sign'])
+            
         print ('\nMouse: ', mouse)
         genotype = mousedata['G']
         excl = mousedata['exclist']  # get the exclusion list
         cell_summary={'intervals': [], 'amplitudes': [], 'protocols': [], 'eventcounts': [], 'genotype': genotype, 'mouse': mouse, 
-            'amplitude_midpoint': 0., 'holding': [], 'averaged': [], }
+            'amplitude_midpoint': 0., 'holding': [], 'averaged': [], 'sign': [], 'threshold': []}
     
         if not check:
             sizer = OrderedDict([('A', {'pos': [0.12, 0.8, 0.35, 0.60]}),
@@ -261,7 +305,6 @@ class MiniAnalysis():
             dainfo = fn
             # print('a1')
             acqr.setProtocol(fn)
-            print('set protocol', check)
             if check:
                 try:
                     result = acqr.getData(check=True)
@@ -279,10 +322,6 @@ class MiniAnalysis():
                 # print('continuing')
                 continue
             acqr.getData()
-            # except:
-            #     print('  Get data failed... ')
-            #     continue
-            print('got data')
             data = np.array(acqr.data_array)
             time_base = acqr.time_base
             dt = 1000.*acqr.sample_interval  # in sec... so convert to msec
@@ -292,12 +331,12 @@ class MiniAnalysis():
             if mode == 'aj':
                 aj = minis.AndradeJonas()
                 aj.setup(tau1=mousedata['rt'], tau2=mousedata['decay'],
-                        template_tmax=maxt, dt=dt, delay=0.0, sign=-1,
+                        template_tmax=maxt, dt=dt, delay=0.0, sign=self.sign,
                         risepower=1.0)
             elif mode == 'cb':
                 aj = minis.ClementsBekkers()
                 aj.setup(tau1=mousedata['rt'], tau2=mousedata['decay'],
-                            template_tmax=3.0*mousedata['decay'], dt=dt, delay=0.0, sign=-1,
+                            template_tmax=3.0*mousedata['decay'], dt=dt, delay=0.0, sign=self.sign,
                             risepower=1.0)
                 aj.set_cb_engine(engine)
             else:
@@ -317,24 +356,29 @@ class MiniAnalysis():
                 ypq = (ntr*i)*ypqspan
                 linefit= np.polyfit(time_base, data[i], 1)
                 refline = np.polyval(linefit, time_base)
-                holding = np.mean(data[i])  # get the mean holding current for this trace
-                data[i] = data[i] - refline  # linear correction
+                holding = self.measure_baseline(data[i])
                 odata = data[i].copy()
+                data[i] = data[i] - refline  # linear correction
                 ax0.text(-1200, yp, '%03d %d' % (dprot, i), fontsize=8)  # label the trace
                 if i in exclude_traces:  # plot the excluded traces, but do not analyze them
+                    print('    **** Trace {0:d} excluded in list'.format(i))
                     ax0.plot(acqr.time_base*1000., odata + yp ,'y-', linewidth=0.25, alpha=0.25, rasterized=rasterize)
                     continue
+                if holding < self.dataplan_data['holding']:
+                    ax0.plot(acqr.time_base*1000., odata + yp ,'m-', linewidth=0.25, alpha=0.25, rasterized=rasterize)
+                    print('     >>>>> Trace {0:d} excluded for holding {1:.3f}'.format(i, holding))
                 nused = nused + 1
             
                # frs, freqs = PU.pSpectrum(data[i], samplefreq=1000./dt)
-                # NotchFilter(signal, notchf=[60.], Q=90., QScale=True, samplefreq=None):
-                # data[i] = DF.NotchFilter(data[i], [60., 120., 180., 240., 300., 360, 420.,
-                #                 480., 660., 780., 1020., 1140., 1380., 1500., 4000.], Q=20., samplefreq=1000./dt)
-                #dfilt = DF.SignalFilter_HPFButter(np.pad(data[i], (len(data[i]), len(data[i])), mode='median', ), 2.5, 1000./dt, NPole=4)
-                dfilt = data[i]
-                dfilt = DF.SignalFilter_LPFButter(dfilt, 2800., 1000./dt, NPole=4)
+                if self.filter: # notch and HPF traxes
+                    dfilt = DF.NotchFilter(data[i], [60., 120., 180., 240., 300., 360, 420.,
+                                    480., 660., 780., 1020., 1140., 1380., 1500., 4000.], Q=20., samplefreq=1000./dt)
+                    dfilt = DF.SignalFilter_HPFButter(np.pad(dfilt, (len(dfilt), len(dfilt)), mode='median', ), 2.5, 1000./dt, NPole=4)
+                    print (dfilt.shape)
+                    data[i] = dfilt[len(data[i]):2*len(data[i])]  # remove padded segments
+                
+                data[i] = DF.SignalFilter_LPFButter(data[i], 2800., 1000./dt, NPole=4) # always LPF data
     #            frsfilt, freqsf = PU.pSpectrum(dfilt, samplefreq=1000./dt)
-                #data[i] = dfilt[len(data[i]):2*len(data[i])]
 
                 if mode == 'aj':
                     aj.deconvolve(data[i], thresh=float(mousedata['thr']), llambda=10., order=order)
@@ -353,24 +397,28 @@ class MiniAnalysis():
                 #          amp = aj.sign*data[i][peaks[-1]] - aj.sign*data[i][aj.onsets[j]]
                 #          amps.extend([amp])
                 cell_summary['averaged'].extend([{'tb': aj.avgeventtb, 'avg': aj.avgevent, 'fit': {'amplitude': aj.Amplitude,
-                    'tau1': aj.tau1, 'tau2': aj.tau2, 'risepower': aj.risepower}, 'best_fit': aj.best_fit}])
-                cell_summary['amplitudes'].extend(sign*data[i][aj.smpkindex])
+                    'tau1': aj.tau1, 'tau2': aj.tau2, 'risepower': aj.risepower}, 'best_fit': aj.best_fit,
+                    'risetenninety': aj.risetenninety, 'decaythirtyseven': aj.decaythirtyseven}])
+                cell_summary['amplitudes'].extend(aj.sign*data[i][aj.smpkindex])
                 cell_summary['eventcounts'].append(len(intervals))
                 cell_summary['protocols'].append((nprot, i))
                 cell_summary['holding'].append(holding)
+                cell_summary['sign'].append(aj.sign)
+                cell_summary['threshold'].append(mousedata['thr'])
                 ax0.plot(aj.timebase, odata + yp ,'c-', linewidth=0.25, alpha=0.25, rasterized=rasterize)
                 ax0.plot(aj.timebase, data[i] + yp, 'k-', linewidth=0.25, rasterized=rasterize)
                 ax0.plot(aj.timebase[aj.smpkindex], data[i][aj.smpkindex] + yp, 'ro', markersize=1.75, rasterized=rasterize)
 
                 if 'A1' in P.axdict.keys():
-                    axdec.plot(aj.timebase[:aj.quot.shape[0]],  aj.quot, label='Deconvolution') 
+                    axdec.plot(aj.timebase[:aj.Crit.shape[0]],  aj.Crit, label='Deconvolution') 
                     axdec.plot([aj.timebase[0],aj.timebase[-1]],  [aj.sdthr,  aj.sdthr],  'r--',  linewidth=0.75, 
                             label='Threshold ({0:4.2f}) SD'.format(aj.sdthr))
-                    axdec.plot(aj.timebase[aj.onsets]-aj.idelay,  ypq + aj.quot[aj.onsets],  'y^', label='Deconv. Peaks')
-        #            axdec.plot(aj.timebase, aj.quot+ypq, 'k', linewidth=0.5, rasterized=rasterize)
+                    axdec.plot(aj.timebase[aj.onsets]-aj.idelay,  ypq + aj.Crit[aj.onsets],  'y^', label='Deconv. Peaks')
+        #            axdec.plot(aj.timebase, aj.Crit+ypq, 'k', linewidth=0.5, rasterized=rasterize)
             ntr = ntr + len(tracelist)# - len(exclude_traces)
             if nused == 0:
                 continue
+
         if check:
             return  # no processing
         # summarize the event and amplitude distributions
@@ -380,8 +428,7 @@ class MiniAnalysis():
         histBins = 50
         nsamp = 1
         nevents = len(cell_summary['amplitudes'])
-        if nevents < 100:
-            return cell_summary
+
         amp, ampbins, amppa= axAmps.hist(cell_summary['amplitudes'], histBins, alpha=0.5, density=True)
 
         # fit to normal distribution

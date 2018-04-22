@@ -174,6 +174,19 @@ class MiniAnalyses():
         self.tau1 = self.fitresult[1]
         self.tau2 = self.fitresult[2]
         self.DC = 0. # best_vals[3]
+        
+        ave = self.sign*self.avgevent
+        ipk = np.argmax(ave)
+        pk = ave[ipk]
+        p10 = 0.1*pk
+        p90 = 0.9*pk
+        p37 = 0.37*pk
+        i10 = np.argmin(np.fabs(ave[:ipk]-p10))
+        i90 = np.argmin(np.fabs(ave[:ipk]-p90))
+        i37 = np.argmin(np.fabs(ave[ipk:]-p37))
+        self.risetenninety = self.dt*(i90-i10)
+        self.decaythirtyseven = self.dt*(i37-ipk)
+        
         self.fitted = True
 
     def plots(self,  events=None,  title=None):
@@ -225,13 +238,13 @@ class MiniAnalyses():
             ax[2].plot(self.avgeventtb[:len(self.avgevent)],  self.sign*self.template[:len(self.avgevent)]*maxa/self.template_amax,  
                 'r-', label='Template')
             ax[2].plot(self.avgeventtb[:len(self.best_fit)],  self.best_fit,  'c--', linewidth=2.0, 
-                label='Best Fit (Rise Power={0:d}\nTau1={1:.1f} Tau2={2:.1f})'.format(self.risepower, self.tau1, self.tau2))
+                label='Best Fit (Rise Power={0:.2f}\nTau1={1:.1f} Tau2={2:.1f})'.format(self.risepower, self.tau1, self.tau2))
             if title is not None:
                 P.figure_handle.suptitle(title)
             ax[2].set_ylabel('Averaged I (pA)')
             ax[2].set_xlabel('T (ms)')
             ax[2].legend(fontsize=8, loc=2, bbox_to_anchor=(1.0, 1.0))
-        
+        print('measures: ', self.risetenninety, self.decaythirtyseven)
         mpl.show()
         
 
@@ -353,7 +366,7 @@ class ClementsBekkers(MiniAnalyses):
         if self.engine == 'cython':
             self.clements_bekkers_cython(D)
         endtime = timeit.default_timer() - starttime
-        print('CB {0:s} time: {1:.4f} s'.format(self.engine, endtime))
+        print('CB {0:s} runtime: {1:.4f} s'.format(self.engine, endtime))
 
         self.Crit = self.sign*self.Crit  # assure that crit is positive
     
@@ -449,7 +462,7 @@ class AndradeJonas(MiniAnalyses):
         self.onsets = scipy.signal.argrelextrema(self.above,  np.greater,  order=int(order))[0] - 1 + self.idelay
         self.summarize(data)
         endtime = timeit.default_timer() - starttime
-        print('AJ run time: %f s',  endtime)
+        print('AJ run time: {0:.4f} s'.format(endtime))
 
 
 #  Some general functions
