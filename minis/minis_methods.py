@@ -34,11 +34,15 @@ class MiniAnalyses():
         self.risepower = 4.
         pass
 
-    def _make_template(self):
+    def _make_template(self, taus=None):
         """
         Private function: make template when it is needed
         """
-        tau_1,  tau_2 = self.taus
+        if taus is None:
+            tau_1,  tau_2 = self.taus  # use the predefined taus
+        else:
+            tau_1,  tau_2 = taus
+            
         t_psc = np.arange(0,  self.template_tmax,  self.dt)
         Aprime = (tau_2/tau_1)**(tau_1/(tau_1-tau_2))
         self.template = np.zeros_like(t_psc)
@@ -528,8 +532,8 @@ def cb_tests():
             amp=20.,  ampvar=10.,  noise=5.0, taus=[1., 5.], func=None, sign=sign,
             expseed=i, noiseseed=i*47)
         cb = ClementsBekkers()
-        cb.setup(tau1=1.,  tau2=5.,  dt=dt,  delay=0.0, template_tmax=3*taus[1],  sign=sign)
-
+        cb.setup(tau1=0.5,  tau2=2.5,  dt=dt,  delay=0.0, template_tmax=3*taus[1],  sign=sign)
+        cb._make_template(taus=[0.3, 3.5])
         cb.cbTemplateMatch(testpscn,  threshold=2.0)
     cb.plots()
     return cb

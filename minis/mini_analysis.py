@@ -65,17 +65,6 @@ rc('text', usetex=False)
 rc('font',**{'family':'sans-serif','sans-serif':['Verdana']})
 
 
-class DataPlan():
-    def __init__(self, datadictname):
-        data = {}
-        fn, ext = os.path.splitext(datadictname)
-        if ext == '':
-            ext = '.py'
-        execfile(fn + ext, data)
-        self.datasource = datadictname
-        self.datasets = data['datasets']
-        self.datadir = data['basepath']
-
 
 def splitall(path):
     """
@@ -134,11 +123,16 @@ class MiniAnalysis():
             self.override_decay = True
         except:
             self.override_decay = False
-            
+        
+        self.filter = False
+        self.filterstring = 'notfiltered'
         try:
             self.filter = dataplan.data['notch_and_hpf_filter']
+            if self.filter:
+                self.filterstring = 'filtered'
         except:
             self.filter = False
+            self.filterstring = 'notfiltered'
 
 
     # from acq4 functions:
@@ -179,12 +173,12 @@ class MiniAnalysis():
         Nothing
         """
         acqr = EP.acq4read.Acq4Read(dataname='Clamp1.ma')  # creates a new instance every time - probably should just create one.
+        summarydata = {}
         with PdfPages(fofilename) as pdf:
-            summarydata = {}
             for id, mouse in enumerate(sorted(self.datasets.keys())):
-                results = self.analyze_one(mouse, pdf, maxprot=10, arreader=acqr, check=check, mode=mode, engine=engine)
-                summarydata[mouse] = results
-        fout = 'summarydata_%s.p' % self.datasource
+                self.analyze_one(mouse, pdf, maxprot=10, arreader=acqr, check=check, mode=mode, engine=engine)
+                summarydata[mouse] = self.cell_summary
+        fout = 'summarydata_{0:s}_{1:s}_{2:s}.p'.format(self.datasource, self.filterstring, mode)
         fh = open(fout, 'wb')
         pickle.dump(summarydata, fh)
         fh.close()
@@ -216,8 +210,9 @@ class MiniAnalysis():
             acqr = EP.acq4read.Acq4Read(dataname='Clamp1.ma')  # only if we don't already have one
         else:
             acqr = arreader
-        rasterize = True    # set True to rasterize traces to reduce size of final document
+        self.rasterize = True    # set True to rasterize traces to reduce size of final document
                             # set false for pub-quality output (but large size)
+        self.acqr = acqr
         dt = 0.1
         mousedata = self.datasets[mouse]
         if self.override_threshold:
@@ -232,37 +227,14 @@ class MiniAnalysis():
         print ('\nMouse: ', mouse)
         genotype = mousedata['G']
         excl = mousedata['exclist']  # get the exclusion list
-        cell_summary={'intervals': [], 'amplitudes': [], 'protocols': [], 'eventcounts': [], 'genotype': genotype, 'mouse': mouse, 
+        self.cell_summary={'intervals': [], 'amplitudes': [], 'protocols': [], 'eventcounts': [], 'genotype': genotype, 'mouse': mouse, 
             'amplitude_midpoint': 0., 'holding': [], 'averaged': [], 'sign': [], 'threshold': []}
     
         if not check:
-            sizer = OrderedDict([('A', {'pos': [0.12, 0.8, 0.35, 0.60]}),
-                           #  ('A1', {'pos': [0.52, 0.35, 0.35, 0.60]}),
-                             ('B', {'pos': [0.12, 0.35, 0.08, 0.20]}),
-                             ('C', {'pos': [0.60, 0.35, 0.08, 0.20]}),
-                             ])  # dict elements are [left, width, bottom, height] for the axes in the plot.
-            n_panels = len(sizer.keys())
-            gr = [(a, a+1, 0, 1) for a in range(0, n_panels)]   # just generate subplots - shape does not matter
-            axmap = OrderedDict(zip(sizer.keys(), gr))
-            P = PH.Plotter((n_panels, 1), axmap=axmap, label=True, figsize=(7., 9.))
-            P.resize(sizer)  # perform positioning magic
-            hht = 3
-            ax0 = P.axdict['A']
-            ax0.set_ylabel('pA', fontsize=9)
-            ax0.set_xlabel('T (ms)', fontsize=9)
-            #axdec = P.axdict['A1']
-            axIntvls = P.axdict['B']
-            axIntvls.set_ylabel('Fraction of Events', fontsize=9)
-            axIntvls.set_xlabel('Interevent Interval (ms)', fontsize=9)
-            axIntvls.set_title('mEPSC Interval Distributon', fontsize=10)
-            axAmps = P.axdict['C']
-            axAmps.set_ylabel('Fraction of Events', fontsize=9)
-            axAmps.set_xlabel('Event Amplitude (pA)', fontsize=9)
-            axAmps.set_title('mEPSC Amplitude Distribution', fontsize=10)
-    
+            self.plot_setup()
         datanameposted = False
-        yspan = 40.
-        ypqspan = 2000.
+        self.yspan = 40.
+        self.ypqspan = 2000.
         ntr = 0
         # for all of the protocols that are included for this cell (identified by mouse and a letter)
         print ('mousedata prots: ', mousedata['prots'])
@@ -270,41 +242,49 @@ class MiniAnalysis():
         for nprot, dprot in enumerate(mousedata['prots']):
             if nprot > maxprot:
                 return
+            self.nprot = nprot
+            self.dprot = dprot
             exclude_traces = []
             if len(mousedata['exclist']) > 0:  # any traces to exclude?
                 if dprot in mousedata['exclist'].keys():
                     #print (mousedata['exclist'], dprot, nprot)
                     exclude_traces = mousedata['exclist'][dprot]
-                
+
             try:
-                fn = os.path.join(self.basedatadir, mousedata['dir'], ('minis_{0:03d}'.format(dprot)))
+                sign = self.dataplan_data['sign']
             except:
-                print('path failed to join')
-                print ('    ', dprot, nprot)
-                print ('    ', mousedata['prots'])
-                print('     ', dprot, mousedata['prots'][nprot])
-                exit(1)
-            if 'sign' not in mousedata.keys():
-                sign = -1
-            else:
-                sign = mousedata['sign']
+                raise ValueError('Event Sign is not defined in the cell data')
+
+            fn = os.path.join(self.basedatadir, mousedata['dir'])
+            fx, ext = os.path.splitext(fn)
+            print('ext: ', ext, fn)
             if not check:
                 print('Protocol file: ', fn)
                 print('   sign: ', sign)
-            split = splitall(fn)[-4:-1]
-            dataname = ''
-            for i in range(len(split)):
-                dataname = os.path.join(dataname, split[i])
+            if ext != '.mat':
+                try:
+                    fn = os.path.join(fn, ('minis_{0:03d}'.format(dprot)))
+                except:
+                    print('path failed to join')
+                    print ('    ', dprot, nprot)
+                    print ('    ', mousedata['prots'])
+                    print('     ', dprot, mousedata['prots'][nprot])
+                    exit(1)
+                split = splitall(fn)[-4:-1]
+                dataname = ''
+                for i in range(len(split)):
+                    dataname = os.path.join(dataname, split[i])
+                acqr.setProtocol(fn)
+            else:
+                df = EP.MatdatacRead.DatacFile(fn)
+                dataname = fn
+                print ('df: ', df.summary())
             if not check:
                 print('  Protocol dataname: ', dataname)
                 print('  exclude traces: ',  exclude_traces)
-            if not datanameposted and not check:
-                P.figure_handle.suptitle(mouse + '  ' + dataname + ' : ' + genotype, fontsize=9, weight='bold')
-                datanameposted = True
-            # print('a')
+
             dainfo = fn
-            # print('a1')
-            acqr.setProtocol(fn)
+
             if check:
                 try:
                     result = acqr.getData(check=True)
@@ -316,194 +296,233 @@ class MiniAnalysis():
                 except:
                     print('  ******* Get data failed... in acqr.getData ', fn, dataname)
                     continue
-            
-            # print('c')
-            if check:
-                # print('continuing')
                 continue
-            acqr.getData()
-            data = np.array(acqr.data_array)
-            time_base = acqr.time_base
-            dt = 1000.*acqr.sample_interval  # in sec... so convert to msec
+            print('ext: ', ext)
+            if ext != '.mat':
+                print('acq4')
+                acqr.getData()
+                data = np.array(acqr.data_array)
+                time_base = acqr.time_base
+                dt = 1000.*acqr.sample_interval  # in sec... so convert to msec
+            else:
+                print('.mat')
+                DF = EP.MatdatacRead.DatacFile(fn)
+                self.acqr = EP.MatdatacRead.GetClamps(DF, self.basedatadir)
+                self.acqr.getClampData()
+                print('self.acq4: ', self.acqr)
+                time_base = self.acqr.time_base
+                data = self.acqr.traces
+                dt = self.acqr.sample_interval
+            if not datanameposted and not check:
+                self.P.figure_handle.suptitle(mouse + '  ' + dataname + ' : ' + genotype, fontsize=9, weight='bold')
+                datanameposted = True
+
             data = data*1e12  # convert to pA
             time_base = time_base*1000.
             maxt = np.max(time_base)
-            if mode == 'aj':
-                aj = minis.AndradeJonas()
-                aj.setup(tau1=mousedata['rt'], tau2=mousedata['decay'],
-                        template_tmax=maxt, dt=dt, delay=0.0, sign=self.sign,
-                        risepower=1.0)
-            elif mode == 'cb':
-                aj = minis.ClementsBekkers()
-                aj.setup(tau1=mousedata['rt'], tau2=mousedata['decay'],
-                            template_tmax=3.0*mousedata['decay'], dt=dt, delay=0.0, sign=self.sign,
-                            risepower=1.0)
-                aj.set_cb_engine(engine)
-            else:
-                raise ValueError('Mode must be aj or cb for event detection')
-    #        print('mousedata rt: ', mousedata['rt'], '   mousedata decay: ', mousedata['decay'])
-
-            mwin = int(2*(4.)/dt)
-            order = int(1.0/dt)
-            ntraces = data.shape[0]
-            tracelist = range(ntraces)
-            print ('  tracelist: ', tracelist, ' exclude: ', exclude_traces)
-            ax0.set_xlim(-1500., np.max(acqr.time_base)*1000.)
-            nused = 0
-            # for all of the traces collected in this protocol run
-            for i in tracelist:
-                yp = (ntr+i)*yspan
-                ypq = (ntr*i)*ypqspan
-                linefit= np.polyfit(time_base, data[i], 1)
-                refline = np.polyval(linefit, time_base)
-                holding = self.measure_baseline(data[i])
-                odata = data[i].copy()
-                data[i] = data[i] - refline  # linear correction
-                ax0.text(-1200, yp, '%03d %d' % (dprot, i), fontsize=8)  # label the trace
-                if i in exclude_traces:  # plot the excluded traces, but do not analyze them
-                    print('    **** Trace {0:d} excluded in list'.format(i))
-                    ax0.plot(acqr.time_base*1000., odata + yp ,'y-', linewidth=0.25, alpha=0.25, rasterized=rasterize)
-                    continue
-                if holding < self.dataplan_data['holding']:
-                    ax0.plot(acqr.time_base*1000., odata + yp ,'m-', linewidth=0.25, alpha=0.25, rasterized=rasterize)
-                    print('     >>>>> Trace {0:d} excluded for holding {1:.3f}'.format(i, holding))
-                nused = nused + 1
-            
-               # frs, freqs = PU.pSpectrum(data[i], samplefreq=1000./dt)
-                if self.filter: # notch and HPF traxes
-                    dfilt = DF.NotchFilter(data[i], [60., 120., 180., 240., 300., 360, 420.,
-                                    480., 660., 780., 1020., 1140., 1380., 1500., 4000.], Q=20., samplefreq=1000./dt)
-                    dfilt = DF.SignalFilter_HPFButter(np.pad(dfilt, (len(dfilt), len(dfilt)), mode='median', ), 2.5, 1000./dt, NPole=4)
-                    print (dfilt.shape)
-                    data[i] = dfilt[len(data[i]):2*len(data[i])]  # remove padded segments
-                
-                data[i] = DF.SignalFilter_LPFButter(data[i], 2800., 1000./dt, NPole=4) # always LPF data
-    #            frsfilt, freqsf = PU.pSpectrum(dfilt, samplefreq=1000./dt)
-
-                if mode == 'aj':
-                    aj.deconvolve(data[i], thresh=float(mousedata['thr']), llambda=10., order=order)
-                else:
-                    aj.cbTemplateMatch(data[i],  threshold=float(mousedata['thr']), order=order)
-
-                #aj.plots()
-                intervals = np.diff(aj.timebase[aj.onsets])
-                cell_summary['intervals'].extend(intervals)
-                # peaks = []
-                # amps = []
-                # for j in range(len(aj.onsets)):
-                #      p =  scipy.signal.argrelextrema(aj.sign*data[i][aj.onsets[j]:(aj.onsets[j]+mwin)], np.greater, order=order)[0]
-                #      if len(p) > 0:
-                #          peaks.extend([int(p[0]+aj.onsets[j])])
-                #          amp = aj.sign*data[i][peaks[-1]] - aj.sign*data[i][aj.onsets[j]]
-                #          amps.extend([amp])
-                cell_summary['averaged'].extend([{'tb': aj.avgeventtb, 'avg': aj.avgevent, 'fit': {'amplitude': aj.Amplitude,
-                    'tau1': aj.tau1, 'tau2': aj.tau2, 'risepower': aj.risepower}, 'best_fit': aj.best_fit,
-                    'risetenninety': aj.risetenninety, 'decaythirtyseven': aj.decaythirtyseven}])
-                cell_summary['amplitudes'].extend(aj.sign*data[i][aj.smpkindex])
-                cell_summary['eventcounts'].append(len(intervals))
-                cell_summary['protocols'].append((nprot, i))
-                cell_summary['holding'].append(holding)
-                cell_summary['sign'].append(aj.sign)
-                cell_summary['threshold'].append(mousedata['thr'])
-                ax0.plot(aj.timebase, odata + yp ,'c-', linewidth=0.25, alpha=0.25, rasterized=rasterize)
-                ax0.plot(aj.timebase, data[i] + yp, 'k-', linewidth=0.25, rasterized=rasterize)
-                ax0.plot(aj.timebase[aj.smpkindex], data[i][aj.smpkindex] + yp, 'ro', markersize=1.75, rasterized=rasterize)
-
-                if 'A1' in P.axdict.keys():
-                    axdec.plot(aj.timebase[:aj.Crit.shape[0]],  aj.Crit, label='Deconvolution') 
-                    axdec.plot([aj.timebase[0],aj.timebase[-1]],  [aj.sdthr,  aj.sdthr],  'r--',  linewidth=0.75, 
-                            label='Threshold ({0:4.2f}) SD'.format(aj.sdthr))
-                    axdec.plot(aj.timebase[aj.onsets]-aj.idelay,  ypq + aj.Crit[aj.onsets],  'y^', label='Deconv. Peaks')
-        #            axdec.plot(aj.timebase, aj.Crit+ypq, 'k', linewidth=0.5, rasterized=rasterize)
+            tracelist, nused = self.analyze_block_traces(mode, data, time_base, maxt, dt, mousedata, exclude_traces, ntr)
             ntr = ntr + len(tracelist)# - len(exclude_traces)
             if nused == 0:
                 continue
 
         if check:
-            return  # no processing
+            return None # no processing
         # summarize the event and amplitude distributions
         # For the amplitude, the data are fit against normal, skewed normal and gamma distributions.
-
-        # generate histogram of amplitudes for plots
-        histBins = 50
-        nsamp = 1
-        nevents = len(cell_summary['amplitudes'])
-
-        amp, ampbins, amppa= axAmps.hist(cell_summary['amplitudes'], histBins, alpha=0.5, density=True)
-
-        # fit to normal distribution
-        ampnorm = scipy.stats.norm.fit(cell_summary['amplitudes'])  #
-        print('    Amplitude (N={0:d} events) Normfit: mean {1:.3f}   sigma: {2:.3f}'.format(nevents, ampnorm[0], ampnorm[1]))
-        x = np.linspace(scipy.stats.norm.ppf(0.01, loc=ampnorm[0], scale=ampnorm[1]),
-                         scipy.stats.norm.ppf(0.99, loc=ampnorm[0], scale=ampnorm[1]), 100)
-        axAmps.plot(x, scipy.stats.norm.pdf(x, loc=ampnorm[0], scale=ampnorm[1]),
-                'r-', lw=2, alpha=0.6, label='Norm: u={0:.3f} s={1:.3f}'
-                    .format(ampnorm[0], ampnorm[1]))
-        k2, p = scipy.stats.normaltest(cell_summary['amplitudes'])
-        print("    p (amplitude is Gaussian) = {:g}".format(1-p))
-        print('    Z-score for skew and kurtosis = {:g} '.format(k2))
-    
-        # fit to skewed normal distriubution
-        ampskew = scipy.stats.skewnorm.fit(cell_summary['amplitudes'])
-        print('    ampskew: mean: {0:.4f} skew:{1:4f}  scale/sigma: {2:4f} '.format(ampskew[1], ampskew[0], 2*ampskew[2]))
-        x = np.linspace(scipy.stats.skewnorm.ppf(0.002, a=ampskew[0], loc=ampskew[1], scale=ampskew[2]),
-                         scipy.stats.skewnorm.ppf(0.995, a=ampskew[0], loc=ampskew[1], scale=ampskew[2]), 100)
-        axAmps.plot(x, scipy.stats.skewnorm.pdf(x, a=ampskew[0], loc=ampskew[1], scale=ampskew[2]),
-                'm-', lw=2, alpha=0.6, label='skewnorm a={0:.3f} u={1:.3f} s={2:.3f}'
-                    .format(ampskew[0], ampskew[1], ampskew[2]))
-
-        # fit to gamma distriubution
-        ampgamma = scipy.stats.gamma.fit(cell_summary['amplitudes'], loc=0.)
-        gamma_midpoint = scipy.stats.gamma.ppf(0.5, a=ampgamma[0], loc=ampgamma[1], scale=ampgamma[2])  # midpoint of distribution
-        print('    ampgamma: mean: {0:.4f} gamma:{1:.4f}  loc: {1:.4f}  scale: {3:.4f} midpoint: {4:.4f}'.
-                        format(ampgamma[0]*ampgamma[2], ampgamma[0], ampgamma[2],  ampgamma[2], gamma_midpoint))
-        x = np.linspace(scipy.stats.gamma.ppf(0.002, a=ampgamma[0], loc=ampgamma[1], scale=ampgamma[2]),
-                         scipy.stats.gamma.ppf(0.995, a=ampgamma[0], loc=ampgamma[1], scale=ampgamma[2]), 100)
-        axAmps.plot(x, scipy.stats.gamma.pdf(x, a=ampgamma[0], loc=ampgamma[1], scale=ampgamma[2]),
-                'g-', lw=2, alpha=0.6, label='gamma: a={0:.3f} loc={1:.3f}\nscale={2:.3f}, mid={3:.3f}'
-                    .format(ampgamma[0], ampgamma[1], ampgamma[2], gamma_midpoint) ) #ampgamma[0]*ampgamma[2]))
-        axAmps.plot([gamma_midpoint, gamma_midpoint], [0., scipy.stats.gamma.pdf([gamma_midpoint],
-                        a=ampgamma[0], loc=ampgamma[1], scale=ampgamma[2])], 'k--',
-                        lw=2, alpha=0.5)
-        axAmps.legend(fontsize=6)
-        cell_summary['amplitude_midpoint'] = gamma_midpoint
-
-        #
-        # Interval distribution
-        #
-        an, bins, patches = axIntvls.hist(cell_summary['intervals'], histBins, density=True)
-        nintvls = len(cell_summary['intervals'])
-        expDis = scipy.stats.expon.rvs(scale=np.std(cell_summary['intervals']), loc=0, size=nintvls)
-        # axIntvls.hist(expDis, bins=bins, histtype='step', color='r')
-        ampexp = scipy.stats.expon.fit(cell_summary['intervals'])
-        x = np.linspace(scipy.stats.expon.ppf(0.01, loc=ampexp[0], scale=ampexp[1]),
-                         scipy.stats.expon.ppf(0.99, loc=ampexp[0], scale=ampexp[1]), 100)
-        axIntvls.plot(x, scipy.stats.expon.pdf(x, loc=ampexp[0], scale=ampexp[1]),
-                'r-', lw=3, alpha=0.6, label='Exp: u={0:.3f} s={1:.3f}\nMean Interval: {2:.3f}\n#Events: {3:d}'
-                    .format(ampexp[0], ampexp[1], np.mean(cell_summary['intervals']), len(cell_summary['intervals'])))
-        axIntvls.legend(fontsize=6)
-
-        # report results
-        print('   N events: {0:7d}'.format(nintvls))
-        print('   Intervals: {0:7.1f} ms SD = {1:.1f} Frequency: {2:7.1f} Hz'.format(np.mean(cell_summary['intervals']),
-                np.std(cell_summary['intervals']), 1e3/np.mean(cell_summary['intervals'])))
-        print('    Amplitude: {0:7.1f} pA SD = {1:.1f}'.format(np.mean(cell_summary['amplitudes']), np.std(cell_summary['amplitudes'])))
-    
-        # test if interval distribtuion is poisson:
-        stats = scipy.stats.kstest(expDis,'expon', args=((np.std(cell_summary['intervals'])),), alternative = 'two-sided')
-        print('    KS test for intervals Exponential: statistic: {0:.5f}  p={1:g}'.format(stats.statistic, stats.pvalue))
-        stats_amp = scipy.stats.kstest(expDis,'norm', 
-                args=(np.mean(cell_summary['amplitudes']),
-                      np.std(cell_summary['amplitudes'])), alternative = 'two-sided')
-        print('    KS test for Normal amplitude: statistic: {0:.5f}  p={1:g}'.format(stats_amp.statistic, stats_amp.pvalue))
-
+        self.plot_hists()
         # show to sceen or save plots to a file
         if pdf is None:
             mpl.show()
         else:
             pdf.savefig(dpi=300)  # rasterized to 300 dpi is ok for documentation.
             mpl.close()
-        return cell_summary
+
+    def analyze_block_traces(self, mode, data, time_base, maxt, dt, mousedata, exclude_traces, ntr):
+        if mode == 'aj':
+            aj = minis.AndradeJonas()
+            aj.setup(tau1=mousedata['rt'], tau2=mousedata['decay'],
+                    template_tmax=maxt, dt=dt, delay=0.0, sign=self.sign,
+                    risepower=1.0)
+        elif mode == 'cb':
+            aj = minis.ClementsBekkers()
+            aj.setup(tau1=mousedata['rt'], tau2=mousedata['decay'],
+                        template_tmax=3.0*mousedata['decay'], dt=dt, delay=0.0, sign=self.sign,
+                        risepower=1.0)
+            aj.set_cb_engine('numba')
+        else:
+            raise ValueError('Mode must be aj or cb for event detection')
+#        print('mousedata rt: ', mousedata['rt'], '   mousedata decay: ', mousedata['decay'])
+
+        mwin = int(2*(4.)/dt)
+        order = int(1.0/dt)
+        ntraces = data.shape[0]
+        tracelist = range(ntraces)
+        print ('  tracelist: ', tracelist, ' exclude: ', exclude_traces)
+        self.ax0.set_xlim(-1500., np.max(self.acqr.time_base)*1000.)
+        nused = 0
+        # for all of the traces collected in this protocol run
+        
+        for i in tracelist:
+            yp = (ntr+i)*self.yspan
+            ypq = (ntr*i)*self.ypqspan
+            linefit= np.polyfit(time_base, data[i], 1)
+            refline = np.polyval(linefit, time_base)
+            holding = self.measure_baseline(data[i])
+            odata = data[i].copy()
+            data[i] = data[i] - refline  # linear correction
+            self.ax0.text(-1200, yp, '%03d %d' % (self.dprot, i), fontsize=8)  # label the trace
+            if i in exclude_traces:  # plot the excluded traces, but do not analyze them
+                print('    **** Trace {0:d} excluded in list'.format(i))
+                self.ax0.plot(self.acqr.time_base*1000., odata + yp ,'y-', linewidth=0.25, alpha=0.25, rasterized=self.rasterize)
+                continue
+            if holding < self.dataplan_data['holding']:
+                self.ax0.plot(self.acqr.time_base*1000., odata + yp ,'m-', linewidth=0.25, alpha=0.25, rasterized=self.rasterize)
+                print('    >>>> Trace {0:d} excluded for holding {1:.3f}'.format(i, holding))
+            nused = nused + 1
+        
+           # frs, freqs = PU.pSpectrum(data[i], samplefreq=1000./dt)
+            if self.filter: # notch and HPF traxes
+                dfilt = DF.NotchFilter(data[i], [60., 120., 180., 240., 300., 360, 420.,
+                                480., 660., 780., 1020., 1140., 1380., 1500., 4000.], Q=20., samplefreq=1000./dt)
+                #dfilt = DF.SignalFilter_HPFButter(np.pad(dfilt, (len(dfilt), len(dfilt)), mode='median', ), 2.5, 1000./dt, NPole=4)
+                #data[i] = dfilt[len(data[i]):2*len(data[i])]  # remove padded segments
+                data[i] = dfilt
+            
+            data[i] = DF.SignalFilter_LPFButter(data[i], 2800., 1000./dt, NPole=4) # always LPF data
+#            frsfilt, freqsf = PU.pSpectrum(dfilt, samplefreq=1000./dt)
+
+            if mode == 'aj':
+                aj.deconvolve(data[i], thresh=float(mousedata['thr']), llambda=10., order=order)
+            else:
+                aj.cbTemplateMatch(data[i],  threshold=float(mousedata['thr']), order=order)
+
+            intervals = np.diff(aj.timebase[aj.onsets])
+            self.cell_summary['intervals'].extend(intervals)
+            self.cell_summary['averaged'].extend([{'tb': aj.avgeventtb, 'avg': aj.avgevent, 'fit': {'amplitude': aj.Amplitude,
+                'tau1': aj.tau1, 'tau2': aj.tau2, 'risepower': aj.risepower}, 'best_fit': aj.best_fit,
+                'risetenninety': aj.risetenninety, 'decaythirtyseven': aj.decaythirtyseven}])
+            self.cell_summary['amplitudes'].extend(aj.sign*data[i][aj.smpkindex])
+            self.cell_summary['eventcounts'].append(len(intervals))
+            self.cell_summary['protocols'].append((self.nprot, i))
+            self.cell_summary['holding'].append(holding)
+            self.cell_summary['sign'].append(aj.sign)
+            self.cell_summary['threshold'].append(mousedata['thr'])
+            self.ax0.plot(aj.timebase, odata + yp ,'c-', linewidth=0.25, alpha=0.25, rasterized=self.rasterize)
+            self.ax0.plot(aj.timebase, data[i] + yp, 'k-', linewidth=0.25, rasterized=self.rasterize)
+            self.ax0.plot(aj.timebase[aj.smpkindex], data[i][aj.smpkindex] + yp, 'ro', markersize=1.75, rasterized=self.rasterize)
+
+            if 'A1' in self.P.axdict.keys():
+                self.axdec.plot(aj.timebase[:aj.Crit.shape[0]],  aj.Crit, label='Deconvolution') 
+                self.axdec.plot([aj.timebase[0],aj.timebase[-1]],  [aj.sdthr,  aj.sdthr],  'r--',  linewidth=0.75, 
+                        label='Threshold ({0:4.2f}) SD'.format(aj.sdthr))
+                self.axdec.plot(aj.timebase[aj.onsets]-aj.idelay,  ypq + aj.Crit[aj.onsets],  'y^', label='Deconv. Peaks')
+    #            axdec.plot(aj.timebase, aj.Crit+ypq, 'k', linewidth=0.5, rasterized=self.rasterize)
+        return tracelist, nused
+        
+        
+    def plot_hists(self):   # generate histogram of amplitudes for plots
+        histBins = 50
+        nsamp = 1
+        nevents = len(self.cell_summary['amplitudes'])
+
+        amp, ampbins, amppa= self.axAmps.hist(self.cell_summary['amplitudes'], histBins, alpha=0.5, density=True)
+
+        # fit to normal distribution
+        ampnorm = scipy.stats.norm.fit(self.cell_summary['amplitudes'])  #
+        print('    Amplitude (N={0:d} events) Normfit: mean {1:.3f}   sigma: {2:.3f}'.format(nevents, ampnorm[0], ampnorm[1]))
+        x = np.linspace(scipy.stats.norm.ppf(0.01, loc=ampnorm[0], scale=ampnorm[1]),
+                         scipy.stats.norm.ppf(0.99, loc=ampnorm[0], scale=ampnorm[1]), 100)
+        self.axAmps.plot(x, scipy.stats.norm.pdf(x, loc=ampnorm[0], scale=ampnorm[1]),
+                'r-', lw=2, alpha=0.6, label='Norm: u={0:.3f} s={1:.3f}'
+                    .format(ampnorm[0], ampnorm[1]))
+        k2, p = scipy.stats.normaltest(self.cell_summary['amplitudes'])
+        print("    p (amplitude is Gaussian) = {:g}".format(1-p))
+        print('    Z-score for skew and kurtosis = {:g} '.format(k2))
+    
+        # fit to skewed normal distriubution
+        ampskew = scipy.stats.skewnorm.fit(self.cell_summary['amplitudes'])
+        print('    ampskew: mean: {0:.4f} skew:{1:4f}  scale/sigma: {2:4f} '.format(ampskew[1], ampskew[0], 2*ampskew[2]))
+        x = np.linspace(scipy.stats.skewnorm.ppf(0.002, a=ampskew[0], loc=ampskew[1], scale=ampskew[2]),
+                         scipy.stats.skewnorm.ppf(0.995, a=ampskew[0], loc=ampskew[1], scale=ampskew[2]), 100)
+        self.axAmps.plot(x, scipy.stats.skewnorm.pdf(x, a=ampskew[0], loc=ampskew[1], scale=ampskew[2]),
+                'm-', lw=2, alpha=0.6, label='skewnorm a={0:.3f} u={1:.3f} s={2:.3f}'
+                    .format(ampskew[0], ampskew[1], ampskew[2]))
+
+        # fit to gamma distriubution
+        ampgamma = scipy.stats.gamma.fit(self.cell_summary['amplitudes'], loc=0.)
+        gamma_midpoint = scipy.stats.gamma.ppf(0.5, a=ampgamma[0], loc=ampgamma[1], scale=ampgamma[2])  # midpoint of distribution
+        print('    ampgamma: mean: {0:.4f} gamma:{1:.4f}  loc: {1:.4f}  scale: {3:.4f} midpoint: {4:.4f}'.
+                        format(ampgamma[0]*ampgamma[2], ampgamma[0], ampgamma[2],  ampgamma[2], gamma_midpoint))
+        x = np.linspace(scipy.stats.gamma.ppf(0.002, a=ampgamma[0], loc=ampgamma[1], scale=ampgamma[2]),
+                         scipy.stats.gamma.ppf(0.995, a=ampgamma[0], loc=ampgamma[1], scale=ampgamma[2]), 100)
+        self.axAmps.plot(x, scipy.stats.gamma.pdf(x, a=ampgamma[0], loc=ampgamma[1], scale=ampgamma[2]),
+                'g-', lw=2, alpha=0.6, label='gamma: a={0:.3f} loc={1:.3f}\nscale={2:.3f}, mid={3:.3f}'
+                    .format(ampgamma[0], ampgamma[1], ampgamma[2], gamma_midpoint) ) #ampgamma[0]*ampgamma[2]))
+        self.axAmps.plot([gamma_midpoint, gamma_midpoint], [0., scipy.stats.gamma.pdf([gamma_midpoint],
+                        a=ampgamma[0], loc=ampgamma[1], scale=ampgamma[2])], 'k--',
+                        lw=2, alpha=0.5)
+        self.axAmps.legend(fontsize=6)
+        self.cell_summary['amplitude_midpoint'] = gamma_midpoint
+
+        #
+        # Interval distribution
+        #
+        an, bins, patches = self.axIntvls.hist(self.cell_summary['intervals'], histBins, density=True)
+        nintvls = len(self.cell_summary['intervals'])
+        expDis = scipy.stats.expon.rvs(scale=np.std(self.cell_summary['intervals']), loc=0, size=nintvls)
+        # axIntvls.hist(expDis, bins=bins, histtype='step', color='r')
+        ampexp = scipy.stats.expon.fit(self.cell_summary['intervals'])
+        x = np.linspace(scipy.stats.expon.ppf(0.01, loc=ampexp[0], scale=ampexp[1]),
+                         scipy.stats.expon.ppf(0.99, loc=ampexp[0], scale=ampexp[1]), 100)
+        self.axIntvls.plot(x, scipy.stats.expon.pdf(x, loc=ampexp[0], scale=ampexp[1]),
+                'r-', lw=3, alpha=0.6, label='Exp: u={0:.3f} s={1:.3f}\nMean Interval: {2:.3f}\n#Events: {3:d}'
+                    .format(ampexp[0], ampexp[1], np.mean(self.cell_summary['intervals']), len(self.cell_summary['intervals'])))
+        self.axIntvls.legend(fontsize=6)
+
+        # report results
+        print('   N events: {0:7d}'.format(nintvls))
+        print('   Intervals: {0:7.1f} ms SD = {1:.1f} Frequency: {2:7.1f} Hz'.format(np.mean(self.cell_summary['intervals']),
+                np.std(self.cell_summary['intervals']), 1e3/np.mean(self.cell_summary['intervals'])))
+        print('    Amplitude: {0:7.1f} pA SD = {1:.1f}'.format(np.mean(self.cell_summary['amplitudes']), np.std(self.cell_summary['amplitudes'])))
+    
+        # test if interval distribtuion is poisson:
+        stats = scipy.stats.kstest(expDis,'expon', args=((np.std(self.cell_summary['intervals'])),), alternative = 'two-sided')
+        print('    KS test for intervals Exponential: statistic: {0:.5f}  p={1:g}'.format(stats.statistic, stats.pvalue))
+        stats_amp = scipy.stats.kstest(expDis,'norm', 
+                args=(np.mean(self.cell_summary['amplitudes']),
+                      np.std(self.cell_summary['amplitudes'])), alternative = 'two-sided')
+        print('    KS test for Normal amplitude: statistic: {0:.5f}  p={1:g}'.format(stats_amp.statistic, stats_amp.pvalue))
+
+
+    def plot_setup(self):
+        sizer = OrderedDict([('A', {'pos': [0.12, 0.8, 0.35, 0.60]}),
+                       #  ('A1', {'pos': [0.52, 0.35, 0.35, 0.60]}),
+                         ('B', {'pos': [0.12, 0.35, 0.08, 0.20]}),
+                         ('C', {'pos': [0.60, 0.35, 0.08, 0.20]}),
+                         ])  # dict elements are [left, width, bottom, height] for the axes in the plot.
+        n_panels = len(sizer.keys())
+        gr = [(a, a+1, 0, 1) for a in range(0, n_panels)]   # just generate subplots - shape does not matter
+        axmap = OrderedDict(zip(sizer.keys(), gr))
+        self.P = PH.Plotter((n_panels, 1), axmap=axmap, label=True, figsize=(7., 9.))
+        self.P.resize(sizer)  # perform positioning magic
+        hht = 3
+        ax0 = self.P.axdict['A']
+        ax0.set_ylabel('pA', fontsize=9)
+        ax0.set_xlabel('T (ms)', fontsize=9)
+        #self.axdec = P.axdict['A1']
+        axIntvls = self.P.axdict['B']
+        axIntvls.set_ylabel('Fraction of Events', fontsize=9)
+        axIntvls.set_xlabel('Interevent Interval (ms)', fontsize=9)
+        axIntvls.set_title('mEPSC Interval Distributon', fontsize=10)
+        axAmps = self.P.axdict['C']
+        axAmps.set_ylabel('Fraction of Events', fontsize=9)
+        axAmps.set_xlabel('Event Amplitude (pA)', fontsize=9)
+        axAmps.set_title('mEPSC Amplitude Distribution', fontsize=10)
+        self.ax0 = ax0
+        self.axIntvls = axIntvls
+        self.axAmps = axAmps
+        
+        
 
 if __name__ == '__main__':
     
@@ -524,16 +543,29 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    dataplan = DataPlan(args.datadict)
+    dataplan = EP.DataPlan.DataPlan(args.datadict)
     
     MI = MiniAnalysis(dataplan)
     
     if args.do_one == '': # no second argument, run all data sets
-        MI.analyze_all(fofilename='all_%s.pdf' % args.datadict, check=args.check, mode=args.mode)
+        print('doing all...', args.do_one)
+        MI.analyze_all(fofilename='all_{0:s}_{1:s}_{2:s}.pdf'.format(args.datadict, filterstring, args.mode), check=args.check, mode=args.mode)
     else:
         summarydata = {}
-        summarydata[args.do_one] = MI.analyze_one(args.do_one, pdf=None, maxprot=10, check=args.check, mode=args.mode)
-        fout = 'summarydata_%s.p' % args.do_one
+        try:
+            filtered = dataplan.data['notch_and_hpf_filter']
+            filterstring = 'filtered'
+        except:
+            filtered = False
+            filterstring = 'nofilter'
+        fout = 'summarydata_{0:s}_{1:s}_{2:s}.p'.format(args.do_one, filterstring, args.mode)
+        
+        fofilename = 'summarydata_{0:s}_{1:s}_{2:s}.pdf'.format(args.do_one, filterstring, args.mode)
+        print('fofile: ', fofliename)
+        with PdfPages(fofilename) as pdf:
+            MI.analyze_one(args.do_one, pdf=fofilename, maxprot=10, check=args.check, mode=args.mode)
+        print('MI summary: ', MI.cell_summary)
+        summarydata = {args.do_one: MI.cell_summary}
         fh = open(fout, 'wb')
         pickle.dump(summarydata, fh)
         fh.close()
