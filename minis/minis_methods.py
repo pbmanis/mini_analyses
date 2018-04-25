@@ -386,7 +386,7 @@ class ClementsBekkers(MiniAnalyses):
         self.onsets = scipy.signal.argrelextrema(self.above,  np.greater,  order=int(order))[0] - 1 + self.idelay
         self.summarize(self.data)
         mask = self.Crit > threshold
-        diff = mask[1:] - mask[:-1]
+        diff = mask[1:] ^ mask[:-1]
         times = np.argwhere(diff==1)[:,  0]  ## every time we start OR stop an event
 
 
@@ -557,5 +557,5 @@ def aj_tests():
     
 
 if __name__ == "__main__":
-    #aj = aj_tests()
-    cb_tests()
+    aj = aj_tests()
+    #cb_tests()
