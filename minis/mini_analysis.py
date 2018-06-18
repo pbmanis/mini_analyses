@@ -60,6 +60,9 @@ import digital_filters as DF
 import pylibrary.PlotHelpers as PH
 import ephysanalysis as EP
 from matplotlib.backends.backend_pdf import PdfPages
+import matplotlib.collections as collections
+import matplotlib.path as mplpath
+from matplotlib.path import Path
 
 rc('text', usetex=False)
 rc('font',**{'family':'sans-serif','sans-serif':['Verdana']})
@@ -228,7 +231,9 @@ class MiniAnalysis():
         genotype = mousedata['G']
         excl = mousedata['exclist']  # get the exclusion list
         self.cell_summary={'intervals': [], 'amplitudes': [], 'protocols': [], 'eventcounts': [], 'genotype': genotype, 'mouse': mouse, 
-            'amplitude_midpoint': 0., 'holding': [], 'averaged': [], 'sign': [], 'threshold': []}
+            'amplitude_midpoint': 0., 'holding': [], 'averaged': [], 'sign': [], 'threshold': [],
+            'indiv_evok': [], 'indiv_notok': [], 'indiv_amp': [], 'indiv_tau1': [], 'indiv_tau2': [], 'indiv_fiterr': [],
+            'indiv_tb': [], 'allevents': [], 'fitted_events': [], 'best_fit': [], 'best_decay_fit': []}
     
         if not check:
             self.plot_setup()
@@ -278,7 +283,7 @@ class MiniAnalysis():
             else:
                 df = EP.MatdatacRead.DatacFile(fn)
                 dataname = fn
-                print ('df: ', df.summary())
+                # print ('df: ', df.summary())
             if not check:
                 print('  Protocol dataname: ', dataname)
                 print('  exclude traces: ',  exclude_traces)
@@ -336,6 +341,9 @@ class MiniAnalysis():
         else:
             pdf.savefig(dpi=300)  # rasterized to 300 dpi is ok for documentation.
             mpl.close()
+        self.plot_individual_events(fit_err_limit=50., 
+                    title=('{0:s}  {1:s}  {2:s}'.format(dataname, self.cell_summary['mouse'], self.cell_summary['genotype'])),
+                    pdf=pdf)
 
     def analyze_block_traces(self, mode, data, time_base, maxt, dt, mousedata, exclude_traces, ntr):
         if mode == 'aj':
@@ -373,10 +381,10 @@ class MiniAnalysis():
             self.ax0.text(-1200, yp, '%03d %d' % (self.dprot, i), fontsize=8)  # label the trace
             if i in exclude_traces:  # plot the excluded traces, but do not analyze them
                 print('    **** Trace {0:d} excluded in list'.format(i))
-                self.ax0.plot(self.acqr.time_base*1000., odata + yp ,'y-', linewidth=0.25, alpha=0.25, rasterized=self.rasterize)
+               # self.ax0.plot(self.acqr.time_base*1000., odata + yp ,'y-', linewidth=0.25, alpha=0.25, rasterized=self.rasterize)
                 continue
             if holding < self.dataplan_data['holding']:
-                self.ax0.plot(self.acqr.time_base*1000., odata + yp ,'m-', linewidth=0.25, alpha=0.25, rasterized=self.rasterize)
+              #  self.ax0.plot(self.acqr.time_base*1000., odata + yp ,'m-', linewidth=0.25, alpha=0.25, rasterized=self.rasterize)
                 print('    >>>> Trace {0:d} excluded for holding {1:.3f}'.format(i, holding))
             nused = nused + 1
         
@@ -399,7 +407,7 @@ class MiniAnalysis():
             intervals = np.diff(aj.timebase[aj.onsets])
             self.cell_summary['intervals'].extend(intervals)
             self.cell_summary['averaged'].extend([{'tb': aj.avgeventtb, 'avg': aj.avgevent, 'fit': {'amplitude': aj.Amplitude,
-                'tau1': aj.tau1, 'tau2': aj.tau2, 'risepower': aj.risepower}, 'best_fit': aj.best_fit,
+                'tau1': aj.tau1, 'tau2': aj.tau2, 'risepower': aj.risepower}, 'best_fit': aj.avg_best_fit,
                 'risetenninety': aj.risetenninety, 'decaythirtyseven': aj.decaythirtyseven}])
             self.cell_summary['amplitudes'].extend(aj.sign*data[i][aj.smpkindex])
             self.cell_summary['eventcounts'].append(len(intervals))
@@ -407,10 +415,26 @@ class MiniAnalysis():
             self.cell_summary['holding'].append(holding)
             self.cell_summary['sign'].append(aj.sign)
             self.cell_summary['threshold'].append(mousedata['thr'])
+            
+            aj.fit_individual_events() # fit_err_limit=2000., tau2_range=2.5)  # on the data just analyzed
+            self.cell_summary['indiv_amp'].append(aj.ev_amp)
+            self.cell_summary['indiv_tau1'].append(aj.ev_tau1)
+            self.cell_summary['indiv_tau2'].append(aj.ev_tau2)
+            self.cell_summary['indiv_fiterr'].append(aj.fiterr)
+            self.cell_summary['fitted_events'].append(aj.fitted_events)
+            self.cell_summary['indiv_evok'].append(aj.events_ok)
+            self.cell_summary['indiv_notok'].append(aj.events_notok)
+            self.cell_summary['allevents'].append(np.array(aj.allevents))
+            self.cell_summary['best_fit'].append(np.array(aj.best_fit))
+            self.cell_summary['best_decay_fit'].append(np.array(aj.best_decay_fit))
+#            for jev in range(len(aj.allevents)):
+#                self.cell_summary['allevents'].append(aj.allevents[jev])
+#                self.cell_summary['best_fit'].append(aj.best_fit[jev])
+            self.cell_summary['indiv_tb'].append(aj.avgeventtb)        
             self.ax0.plot(aj.timebase, odata + yp ,'c-', linewidth=0.25, alpha=0.25, rasterized=self.rasterize)
             self.ax0.plot(aj.timebase, data[i] + yp, 'k-', linewidth=0.25, rasterized=self.rasterize)
             self.ax0.plot(aj.timebase[aj.smpkindex], data[i][aj.smpkindex] + yp, 'ro', markersize=1.75, rasterized=self.rasterize)
-
+            
             if 'A1' in self.P.axdict.keys():
                 self.axdec.plot(aj.timebase[:aj.Crit.shape[0]],  aj.Crit, label='Deconvolution') 
                 self.axdec.plot([aj.timebase[0],aj.timebase[-1]],  [aj.sdthr,  aj.sdthr],  'r--',  linewidth=0.75, 
@@ -419,6 +443,81 @@ class MiniAnalysis():
     #            axdec.plot(aj.timebase, aj.Crit+ypq, 'k', linewidth=0.5, rasterized=self.rasterize)
         return tracelist, nused
         
+
+    def plot_individual_events(self, fit_err_limit=1000., tau2_range=2.5, title='', pdf=None):
+        P = PH.regular_grid(3 , 3, order='columns', figsize=(8., 8.), showgrid=False,
+                        verticalspacing=0.1, horizontalspacing=0.12,
+                        margins={'leftmargin': 0.12, 'rightmargin': 0.12, 'topmargin': 0.03, 'bottommargin': 0.1},
+                        labelposition=(-0.12, 0.95))
+        P.figure_handle.suptitle(title)
+        all_evok = self.cell_summary['indiv_evok']  # this is the list of ok events - a 2d list by 
+        all_notok = self.cell_summary['indiv_notok']
+        # print('all evok: ', all_evok)
+        # print('len allevok: ', len(all_evok))
+        #
+        # # print('all_notok: ', all_notok)
+        # # print('indiv tau1: ', self.cell_summary['indiv_tau1'])
+        # exit(1)
+        trdat = []
+        trfit = []
+        trdecfit = []
+        for itr in range(len(all_evok)):  # for each trace
+            for evok in all_evok[itr]:  # for each ok event in that trace
+                P.axdict['A'].plot(self.cell_summary['indiv_tau1'][itr][evok], self.cell_summary['indiv_amp'][itr][evok], 'ko', markersize=3)
+                P.axdict['B'].plot(self.cell_summary['indiv_tau2'][itr][evok], self.cell_summary['indiv_amp'][itr][evok], 'ko', markersize=3)
+                P.axdict['C'].plot(self.cell_summary['indiv_tau1'][itr][evok], self.cell_summary['indiv_tau2'][itr][evok], 'ko', markersize=3)
+                P.axdict['D'].plot(self.cell_summary['indiv_amp'][itr][evok], self.cell_summary['indiv_fiterr'][itr][evok], 'ko', markersize=3)
+                trdat.append(np.column_stack([self.cell_summary['indiv_tb'][itr], self.cell_summary['allevents'][itr][evok]]))
+                #idl = len(self.cell_summary['best_decay_fit'][itr][evok])
+                trfit.append(np.column_stack([self.cell_summary['indiv_tb'][itr], 
+                    -self.cell_summary['best_fit'][itr][evok]]))
+                trdecfit.append(np.column_stack([self.cell_summary['indiv_tb'][itr], 
+                    -self.cell_summary['best_decay_fit'][itr][evok]]))
+        dat_coll = collections.LineCollection(trdat, colors='k', linewidths=0.5)
+        fit_coll = collections.LineCollection(trfit, colors='r', linewidths=0.25)
+#        decay_fit_coll = collections.LineCollection(trdecfit, colors='c', linewidths=0.3)
+        P.axdict['G'].add_collection(dat_coll)
+        P.axdict['G'].add_collection(fit_coll)
+#        P.axdict['G'].add_collection(decay_fit_coll) 
+        n_trdat = []
+        n_trfit = []
+        for itr in range(len(all_notok)):
+            for notok in all_notok[itr]:
+                n_trdat.append(np.column_stack([self.cell_summary['indiv_tb'][itr], self.cell_summary['allevents'][itr][notok]]))
+                n_trfit.append(np.column_stack([self.cell_summary['indiv_tb'][itr], -self.cell_summary['best_fit'][itr][notok]]))
+                P.axdict['D'].plot(self.cell_summary['indiv_amp'][itr][notok], self.cell_summary['indiv_fiterr'][itr][notok], 'ro', markersize=3)
+        n_dat_coll = collections.LineCollection(n_trdat, colors='b', linewidths=0.35)
+        n_fit_coll = collections.LineCollection(n_trfit, colors='y', linewidths=0.25)
+        P.axdict['E'].add_collection(n_dat_coll) 
+        P.axdict['E'].add_collection(n_fit_coll) 
+        
+        P.axdict['A'].set_xlabel(r'$tau_1$ (ms)')
+        P.axdict['A'].set_ylabel(r'Amp (pA)')
+        P.axdict['B'].set_xlabel(r'$tau_2$ (ms)')
+        P.axdict['B'].set_ylabel(r'Amp (pA)')
+        P.axdict['C'].set_xlabel(r'$\tau_1$ (ms)')
+        P.axdict['C'].set_ylabel(r'$\tau_2$ (ms)')
+        P.axdict['D'].set_xlabel(r'Amp (pA)')
+        P.axdict['D'].set_ylabel(r'Fit Error (cost)')
+        P.axdict['G'].set_ylim((-100., 20.))
+        P.axdict['G'].set_xlim((-2., 25.))
+        P.axdict['E'].set_ylim((-100., 20.))
+        P.axdict['E'].set_xlim((-2., 25.))
+
+# put in averaged event too
+        # self.cell_summary['averaged'].extend([{'tb': aj.avgeventtb, 'avg': aj.avgevent, 'fit': {'amplitude': aj.Amplitude,
+        #     'tau1': aj.tau1, 'tau2': aj.tau2, 'risepower': aj.risepower}, 'best_fit': aj.avg_best_fit,
+        #     'risetenninety': aj.risetenninety, 'decaythirtyseven': aj.decaythirtyseven}])
+        aev = self.cell_summary['averaged']
+        for i in range(len(aev)):
+            P.axdict['F'].plot(aev[i]['tb'], aev[i]['avg'], 'k-', linewidth=0.8)
+            P.axdict['F'].plot(aev[i]['tb'], aev[i]['best_fit'], 'r--', linewidth=0.4)
+            
+        if pdf is None:
+            mpl.show()
+        else:
+            pdf.savefig(dpi=300)
+            mpl.close()
         
     def plot_hists(self):   # generate histogram of amplitudes for plots
         histBins = 50
@@ -540,6 +639,8 @@ if __name__ == '__main__':
     parser.add_argument('-m', '--mode', type=str, default='aj', dest='mode',
                         choices=['aj', 'cb'],
                         help='just do one')
+    parser.add_argument('-v', '--view', action='store_false',
+                        help='Turn off pdf for single run')
 
     args = parser.parse_args()
 
@@ -549,7 +650,8 @@ if __name__ == '__main__':
     
     if args.do_one == '': # no second argument, run all data sets
         print('doing all...', args.do_one)
-        MI.analyze_all(fofilename='all_{0:s}_{1:s}_{2:s}.pdf'.format(args.datadict, filterstring, args.mode), check=args.check, mode=args.mode)
+        MI.analyze_all(fofilename='all_{0:s}_{1:s}_{2:s}.pdf'.format(args.datadict, 
+            filterstring, args.mode), check=args.check, mode=args.mode)
     else:
         summarydata = {}
         try:
@@ -560,11 +662,15 @@ if __name__ == '__main__':
             filterstring = 'nofilter'
         fout = 'summarydata_{0:s}_{1:s}_{2:s}.p'.format(args.do_one, filterstring, args.mode)
         
-        fofilename = 'summarydata_{0:s}_{1:s}_{2:s}.pdf'.format(args.do_one, filterstring, args.mode)
-        print('fofile: ', fofliename)
-        with PdfPages(fofilename) as pdf:
-            MI.analyze_one(args.do_one, pdf=fofilename, maxprot=10, check=args.check, mode=args.mode)
-        print('MI summary: ', MI.cell_summary)
+        if not args.view:
+            fofilename = 'summarydata_{0:s}_{1:s}_{2:s}.pdf'.format(args.do_one, filterstring, args.mode)
+            print('fofile: ', fofliename)
+            with PdfPages(fofilename) as pdf:
+                MI.analyze_one(args.do_one, pdf=fofilename, maxprot=10, check=args.check, mode=args.mode)
+        else:
+            MI.analyze_one(args.do_one, pdf=None, maxprot=10, check=args.check, mode=args.mode)
+        
+        #print('MI summary: ', MI.cell_summary)
         summarydata = {args.do_one: MI.cell_summary}
         fh = open(fout, 'wb')
         pickle.dump(summarydata, fh)
