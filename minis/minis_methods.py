@@ -46,10 +46,8 @@ class MiniAnalyses():
         t_psc = np.arange(0,  self.template_tmax,  self.dt)
         Aprime = (tau_2/tau_1)**(tau_1/(tau_1-tau_2))
         self.template = np.zeros_like(t_psc)
-        tm = 1./Aprime * ((1-(np.exp(-t_psc/tau_1)))**self.risepower * np.exp((-t_psc/tau_2)))
-
-
-        
+       # tm = 1./Aprime * ((1-(np.exp(-t_psc/tau_1)))**self.risepower * np.exp((-t_psc/tau_2)))
+        tm = 1./2. * (np.exp(-t_psc/tau_1) - np.exp(-t_psc/tau_2))
         if self.idelay > 0:
             self.template[self.idelay:] = tm[:-self.idelay]  # shift the template
         else:
@@ -71,6 +69,7 @@ class MiniAnalyses():
         self.smoothed_peaks = []
         self.amplitudes = []
         self.averaged = False  # set flags in case of no events found
+        self.individual_events = False
         self.fitted = False
         ndata = len(data)
         avgwin = 5 # int(1.0/self.dt)  # 5 point moving average window for peak detection
@@ -121,8 +120,9 @@ class MiniAnalyses():
 
     def average_events(self):
         # compute average event with length of template
-        tdur = np.max((np.max(self.taus)*3.0, 5.0))  # go 3 taus or 5 ms past event
+        tdur = np.max((np.max(self.taus)*5.0, 10.0))  # go 3 taus or 5 ms past event
         tpre = 0 # self.taus[0]*10.
+        self.avgeventdur = tdur
         self.tpre = tpre
         self.avgnpts = int((tpre+tdur)/self.dt)  # points for the average
         npre = int(tpre/self.dt) # points for the pre time
@@ -144,14 +144,267 @@ class MiniAnalyses():
         else:
             self.averaged = False
 
-    def doubleexp(self, x, t, y, risepower):
+    def doubleexp(self, p, x, y, risepower, fixed_delay=0., mode=0):
         """
         Calculate a double expoential EPSC-like waveform with the rise to a power
         to make it sigmoidal
         """
-        tm = x[0] * ((1.0 - np.exp(-t/x[1]))**risepower )* np.exp((-t/x[2]))
-        return tm-y
-    
+        dx = x - fixed_delay
+        tm = p[0] * (((1.0 - np.exp(-dx/p[1]))**risepower ) * np.exp((-dx/p[2])))
+        neg = np.where(dx < 0.)  # make values before delay time = 0
+        tm[neg[0]] = 0.
+        if mode == 0:
+            return tm - y
+        elif mode == 1:
+            return np.linalg.norm(tm-y)
+        else:
+            raise ValueError('doubleexp: Mode must be 0 (diff), 1 (linalg.norm) or -1 (just value)')
+
+    def risefit(self, p, x, y, risepower, mode=0):
+        """
+        Calculate a delayed EPSC-like waveform rise shape with the rise to a power
+        to make it sigmoidal, and an adjustable delay
+        input data should only be the rising phase.
+        """
+        dx = x - p[2]  # p[2] is the delay
+        tm = p[0] * ((1.0 - np.exp(-dx/p[1]))**risepower)
+        neg = np.where(dx < 0.)  # make values before delay time = 0
+        tm[neg[0]] = 0.
+        if mode == 0:
+            return tm - y
+        elif mode == 1:
+            return np.linalg.norm(tm-y)
+        else:
+            raise ValueError('doubleexp: Mode must be 0 (diff), 1 (linalg.norm) or -1 (just value)')
+        
+    def decayexp(self, p, x, y, fixed_delay=0., mode=0):
+        """
+        Calculate an expoential decay (falling phase fit)
+        """
+        tm = p[0] * np.exp(-(x-fixed_delay)/p[1])
+        if mode == 0:
+            return tm - y
+        else:
+            return np.linalg.norm(tm-y)
+
+    def fit_individual_events(self):
+        """
+        Fitting individual events
+        Events to be fit are selected from the entire event pool as:
+        1. events that are completely within the trace, AND
+        2. events that do not overlap other events
+        
+        Fit events are further classified according to the fit error
+        
+        """
+        if not self.averaged or not self.fitted:  # averaging should be done first: stores events for convenience and gives some tau estimates
+            print('Require fit of averaged events prior to fitting individual events')
+            raise(ValueError)
+        time_past_peak = 0.75 # msec - time after peak to start fitting
+        
+        # allocate arrays for results. Arrays have space for ALL events
+        # okevents, notok, and evok are indices
+        nevents = len(self.allevents)  # self.onsets.shape[0]
+        self.ev_amp = np.zeros(nevents)  # measured amplitude from the fit
+        self.ev_fitamp = np.zeros(nevents)  # fit amplitude - raw value can be quite different than true amplitude.....
+        self.ev_tau1 = np.zeros(nevents)
+        self.ev_tau2 = np.zeros(nevents)
+        self.ev_1090 = np.zeros(nevents)
+        self.ev_2080 = np.zeros(nevents)
+        self.fiterr = np.zeros(nevents)
+        self.bfdelay = np.zeros(nevents)
+        self.best_fit = np.zeros((nevents, self.avgeventtb.shape[0]))
+        self.best_decay_fit = np.zeros((nevents, self.avgeventtb.shape[0]))
+        self.tsel = 0
+        self.tau2_range = 10.
+        self.tau1_minimum_factor = 5.
+
+        # prescreen events
+        minint = self.avgeventdur # msec minimum interval between events.
+        self.fitted_events = []  # events that can be used (may not be all events, but these are the events that were fit)
+        for i in range(nevents):
+            te = self.timebase[self.onsets[i] ] # get current event
+            try:
+                tn = self.timebase[self.onsets[i+1]]  # check time to next event
+                if tn-te < minint:  # event is followed by too soon by another event
+                    continue
+            except:
+                    pass  # just handle trace end condition
+            try:
+                tp = self.timebase[self.onsets[i-1] ] # check previous event
+                if te-tp < minint:  # if current event too close to a previous event, skip
+                    continue
+                self.fitted_events.append(i)  # passes test, include in ok events
+            except:
+                pass
+
+        for n, i in enumerate(self.fitted_events):
+            try:
+                max_event = np.max(self.sign*self.allevents[i,:])
+            except:
+                print('fitted: ', self.fitted_events)
+                print('i: ', i)
+                print('allev: ', self.allevents)
+                print('len allev: ', len(self.allevents), self.onsets.shape[0])
+                raise
+            res = self.event_fitter(self.allevents[i,:], time_past_peak=time_past_peak)
+            self.fitresult = res.x
+
+            # lmfit version - fails for odd reason
+            # dexpmodel = Model(self.doubleexp)
+            # params = dexpmodel.make_params(A=-10.,  tau_1=0.5,  tau_2=4.0,  dc=0.)
+            # self.fitresult = dexpmodel.fit(self.avgevent[tsel:],  params,  x=self.avgeventtb[tsel:])
+            self.ev_fitamp[i] = self.fitresult[0]
+            self.ev_tau1[i] = self.fitresult[1]
+            self.ev_tau2[i] = self.fitresult[2]
+            self.bfdelay[i] = self.fitresult[3]
+            self.fiterr[i] = self.doubleexp(self.fitresult, self.avgeventtb, self.sign*self.allevents[i,:], 
+                                                risepower=self.risepower, fixed_delay=self.bfdelay[i], mode=1)
+            self.best_fit[i] = self.doubleexp(self.fitresult, self.avgeventtb,
+                                                np.zeros_like(self.avgeventtb), 
+                                                risepower=self.risepower, fixed_delay=self.bfdelay[i], mode=0)
+            self.best_decay_fit[i] = self.decay_fit  # from event_fitter
+            self.ev_amp[i] = np.max(self.best_fit[i])
+        self.individual_event_screen(fit_err_limit=2000., tau2_range=10.)
+        self.individual_events = True  # we did this step
+
+    def event_fitter(self, event, time_past_peak=0.5):
+        """
+        Fit the event
+        Procedure:
+        First we fit the rising pahse (to the peak) with (1-exp(t)^n), allowing
+        the onset of the function to slide in time. This onset time is locked after this step
+        to minimize trading in the error surface between the onset and the tau values.
+        Second, we fit the decay phase, starting just past the peak (and accouting for the fixed delay)
+        Finally, we combine the parameters and do a final optimization with somewhat narrow
+        bounds.
+        Fits are good on noiseless test data. 
+        Fits are affected by noise on the events (of course), but there is no "systematic"
+        variation that is present in terms of rise-fall tau tradeoffs.
+        
+        """
+        peak_pos = np.argmax(self.sign*event)
+        
+        ev_bl = np.mean(event[0:5])
+
+        # fit rising phase fisrt
+        maxev = np.max((0., np.max(self.sign*event)))
+        if maxev > 2000.:
+            maxev = 1000.
+        bounds_rise = [(0., 0.1, 0.), (2000., 5.0, 1.0)]
+        init_vals_rise = [maxev, np.max((0.1, np.min((5.0, self.tau1)))), 0.]
+        try:
+            res_rise = scipy.optimize.least_squares(self.risefit, init_vals_rise, bounds=bounds_rise, 
+                        args=(self.avgeventtb[:peak_pos], 
+                        self.sign*(event[:peak_pos] - ev_bl), self.risepower))
+        except:
+            print('peak pos:', peak_pos)
+            print('tau1: ', self.tau1)
+            print('init: ', init_vals_rise)
+            print('bounds: ', bounds_rise)
+            print('bl: ', ev_bl)
+            raise
+        #print('res rise: ', res_rise.x)
+        
+        # fit decay exponential next:
+        bounds_decay  = [(0., self.tau2/4.), (10000., self.tau2*4.)]  # be sure init values are inside bounds
+        init_vals_decay = [np.max((0., np.max(self.sign*event))),  self.tau2]
+        decay_fit_start = peak_pos + int(time_past_peak/self.dt) + int(res_rise.x[2]/self.dt)
+        res_decay = scipy.optimize.least_squares(self.decayexp, init_vals_decay,
+                        bounds=bounds_decay, args=(self.avgeventtb[decay_fit_start:], 
+                        self.sign*(event[decay_fit_start:] - ev_bl), res_rise.x[2], 0))
+        self.res_decay = res_decay
+        
+        # now tune by fitting the whole trace, allowing some (but not too much) flexibility
+        self.decayfitresult = res_decay.x
+        bounds_full  = [(0.2*res_rise.x[0], 5.0*res_rise.x[0]), # rise amplitude
+                        (res_rise.x[1]*0.5, res_rise.x[1]*2.0),  # rise tau
+                        (res_decay.x[1]*0.8, res_decay.x[1]*1.25),  # decay tau
+                        (res_rise.x[2], res_rise.x[2])  # fixed delay time
+                    ]
+        init_vals = [res_rise.x[0],  res_rise.x[1], res_decay.x[1], res_rise.x[2]]  # be sure init values are inside bounds
+        res = scipy.optimize.minimize(self.doubleexp, init_vals, method='SLSQP',
+                        args=(self.avgeventtb, self.sign*(event-ev_bl), 
+                        self.risepower, res_rise.x[2], 1),
+                        bounds=bounds_full, 
+                        )
+        self.decay_fit = self.decayexp(self.decayfitresult, self.avgeventtb,
+                                np.zeros_like(self.avgeventtb), res_rise.x[2], 0)
+        self.decay_fit[:decay_fit_start] = 0  # clip the initial part
+        self.bferr = self.doubleexp(res.x, self.avgeventtb, event,
+                    risepower=self.risepower, fixed_delay=res_rise.x[2], mode=1)
+        return res
+
+    def individual_event_screen(self, fit_err_limit=2000., tau2_range=2.5):
+        """
+        Screen events:
+        error of he fit must be less than a limit,
+        and
+        tau2 must fall within a range of the default tau2
+        and
+        tau1 must be breater than a minimum tau1
+        sets:
+        self.events_ok : the list of fitted events that pass
+        self.events_notok : the list of fitted events that did not pass
+        """
+        self.events_ok = []
+        for i in self.fitted_events:  # these are the events that were fit
+            if self.fiterr[i] <= fit_err_limit:
+                if  self.ev_tau2[i] <= self.tau2_range*self.tau2:
+                    if self.ev_amp[i] > 5.:
+                        if self.ev_tau1[i] > self.tau1/self.tau1_minimum_factor:
+                            self.events_ok.append(i)
+        self.events_notok = list(set(self.fitted_events).difference(self.events_ok))
+
+    def plot_individual_events(self, fit_err_limit=1000., tau2_range=2.5, show=True):
+        if not self.individual_events:
+            raise
+        P = PH.regular_grid(3 , 3, order='columns', figsize=(8., 8.), showgrid=False,
+                        verticalspacing=0.1, horizontalspacing=0.12,
+                        margins={'leftmargin': 0.12, 'rightmargin': 0.12, 'topmargin': 0.03, 'bottommargin': 0.1},
+                        labelposition=(-0.12, 0.95))
+#        evok, notok = self.individual_event_screen(fit_err_limit=fit_err_limit, tau2_range=tau2_range)
+        evok = self.events_ok
+        notok = self.events_notok
+        
+        P.axdict['A'].plot(self.ev_tau1[evok], self.ev_amp[evok], 'ko', markersize=4)
+        P.axdict['A'].set_xlabel(r'$tau_1$ (ms)')
+        P.axdict['A'].set_ylabel(r'Amp (pA)')
+        P.axdict['B'].plot(self.ev_tau2[evok], self.ev_amp[evok], 'ko', markersize=4)
+        P.axdict['B'].set_xlabel(r'$tau_2$ (ms)')
+        P.axdict['B'].set_ylabel(r'Amp (pA)')
+        P.axdict['C'].plot(self.ev_tau1[evok], self.ev_tau2[evok], 'ko', markersize=4)
+        P.axdict['C'].set_xlabel(r'$\tau_1$ (ms)')
+        P.axdict['C'].set_ylabel(r'$\tau_2$ (ms)')
+        P.axdict['D'].plot(self.ev_amp[evok], self.fiterr[evok], 'ko', markersize=3)
+        P.axdict['D'].plot(self.ev_amp[notok], self.fiterr[notok], 'ro', markersize=3)
+        P.axdict['D'].set_xlabel(r'Amp (pA)')
+        P.axdict['D'].set_ylabel(r'Fit Error (cost)')
+        for i in notok:
+            ev_bl = np.mean(self.allevents[i, 0:5])
+            P.axdict['E'].plot(self.avgeventtb, self.allevents[i]-ev_bl, 'b-', linewidth=0.75)
+                # P.axdict['E'].plot()
+            P.axdict['F'].plot(self.avgeventtb, self.allevents[i]-ev_bl, 'r-', linewidth=0.75)
+        P2= PH.regular_grid(1, 1, order='columns', figsize=(8., 8.), showgrid=False,
+                        verticalspacing=0.1, horizontalspacing=0.12,
+                        margins={'leftmargin': 0.12, 'rightmargin': 0.12, 'topmargin': 0.03, 'bottommargin': 0.1},
+                        labelposition=(-0.12, 0.95))
+
+        for i in evok:
+          #  print(self.ev_tau1, self.ev_tau2)
+            offset = i*3.0
+            ev_bl = np.mean(self.allevents[i, 0:5])
+            P2.axdict['A'].plot(self.avgeventtb, self.allevents[i]+offset-ev_bl, 'k-', linewidth=0.35)
+            # p = [self.ev_amp[i], self.ev_tau1[i],self.ev_tau2[i]]
+            # x = self.avgeventtb
+            #y = self.doubleexp(p, x, np.zeros_like(x), self.risepower, mode=-1)
+            #y = p[0] * (((np.exp(-x/p[1]))) - np.exp(-x/p[2]))
+            P2.axdict['A'].plot(self.avgeventtb, self.sign*self.best_fit[i]+offset, 'c--', linewidth=0.3)
+            P2.axdict['A'].plot(self.avgeventtb, self.sign*self.best_decay_fit[i]+offset, 'r--', linewidth=0.3)
+            
+        if show:
+            mpl.show()
+
     def fit_average_event(self):
         """
         Fit the averaged event to a double exponential epsc-like function
@@ -161,24 +414,31 @@ class MiniAnalyses():
         #tsel = np.argwhere(self.avgeventtb > self.tpre)[0]  # only fit data in event,  not baseline
         tsel = 0  # use whole averaged trace
         self.tsel = tsel
+        self.tau1 = 1
+        self.tau2 = 5
+        self.tau2_range = 10.
+        self.tau1_minimum_factor = 5.
+        time_past_peak = 0.5
+        # peak_pos = np.argmax(self.sign*self.avgevent[self.tsel:])
+        # decay_fit_start = peak_pos + int(time_past_peak/self.dt)
+        # init_vals = [self.sign*10.,  1.0,  4., 0.]
+        # init_vals_exp = [20.,  5.0]
+        # bounds_exp  = [(0., 0.5), (10000., 50.)]
         
-        # setup for fit
-        init_vals = [self.sign*10.,  0.5,  4.]
-        bounds  = [(-4000., 0.075, 0.2), (4000., 10., 50.)]
-        res = scipy.optimize.least_squares(self.doubleexp, init_vals,
-                        bounds=bounds, args=(self.avgeventtb[self.tsel:], self.avgevent[self.tsel:], self.risepower))
+        res = self.event_fitter(self.avgevent, time_past_peak=time_past_peak)
+#        print('res for average event: ', res.x)
         self.fitresult = res.x
-        self.best_fit = self.doubleexp(self.fitresult, self.avgeventtb[self.tsel:],
-            np.zeros_like(self.avgeventtb[self.tsel:]), risepower=self.risepower)
-        # lmfit version - fails for odd reason
-        # dexpmodel = Model(self.doubleexp)
-        # params = dexpmodel.make_params(A=-10.,  tau_1=0.5,  tau_2=4.0,  dc=0.)
-        # self.fitresult = dexpmodel.fit(self.avgevent[tsel:],  params,  x=self.avgeventtb[tsel:])
         self.Amplitude = self.fitresult[0]
         self.tau1 = self.fitresult[1]
         self.tau2 = self.fitresult[2]
+        self.bfdelay = self.fitresult[3]
         self.DC = 0. # best_vals[3]
-        
+#        print('best delay: ', self.bfdelay, self.bferr)
+        avg_fit = self.doubleexp(res.x, self.avgeventtb[self.tsel:],
+            np.zeros_like(self.avgeventtb[self.tsel:]), risepower=self.risepower, mode=0, fixed_delay=self.bfdelay)
+        fiterr = np.linalg.norm(avg_fit-self.avgevent[self.tsel:])
+        self.avg_best_fit = self.sign*avg_fit
+       # self.decayfitresult = res_decay.x
         ave = self.sign*self.avgevent
         ipk = np.argmax(ave)
         pk = ave[ipk]
@@ -190,7 +450,6 @@ class MiniAnalyses():
         i37 = np.argmin(np.fabs(ave[ipk:]-p37))
         self.risetenninety = self.dt*(i90-i10)
         self.decaythirtyseven = self.dt*(i37-ipk)
-        
         self.fitted = True
 
     def plots(self,  events=None,  title=None):
@@ -241,8 +500,9 @@ class MiniAnalyses():
             #print(len(self.avgeventtb[:len(self.template)]), len(self.template))
             ax[2].plot(self.avgeventtb[:len(self.avgevent)],  self.sign*self.template[:len(self.avgevent)]*maxa/self.template_amax,  
                 'r-', label='Template')
-            ax[2].plot(self.avgeventtb[:len(self.best_fit)],  self.best_fit,  'c--', linewidth=2.0, 
-                label='Best Fit (Rise Power={0:.2f}\nTau1={1:.1f} Tau2={2:.1f})'.format(self.risepower, self.tau1, self.tau2))
+            ax[2].plot(self.avgeventtb[:len(self.avg_best_fit)],  self.avg_best_fit,  'c--', linewidth=2.0, 
+                label='Best Fit:\nRise Power={0:.2f}\nTau1={1:.2f}\nTau2={2:.3f}\ndelay: {3:.3f})'.
+                        format(self.risepower, self.tau1, self.tau2, self.bfdelay))
             if title is not None:
                 P.figure_handle.suptitle(title)
             ax[2].set_ylabel('Averaged I (pA)')
@@ -254,6 +514,9 @@ class MiniAnalyses():
 
 @jit(nopython=True,  cache=True)
 def nb_clementsbekkers(data,  template):
+    """
+    cb algorithm for numba jit.
+    """
     ## Prepare a bunch of arrays we'll need later
     n_template = len(template)
     n_data = data.shape[0]
@@ -285,6 +548,9 @@ def nb_clementsbekkers(data,  template):
 
 
 class ClementsBekkers(MiniAnalyses):
+    """
+    Python implementation of Clements and Bekkers 1997 algorithm
+    """
     def __init__(self):
         self.dt = None
         self.data = None
@@ -305,6 +571,26 @@ class ClementsBekkers(MiniAnalyses):
         self.template = None  # reset the template if needed.
         self.eventstartthr = eventstartthr
         self.risepower = risepower
+
+    def _make_template(self):
+        """
+        Private function: make template when it is needed
+        """
+        tau_1,  tau_2 = self.taus
+        t_psc = np.arange(0,  self.template_tmax,  self.dt)
+        Aprime = (tau_2/tau_1)**(tau_1/(tau_1-tau_2))
+        self.template = np.zeros_like(t_psc)
+        tm = 1./Aprime * ((1-(np.exp(-t_psc/tau_1)))**self.risepower * np.exp((-t_psc/tau_2)))
+        
+        if self.idelay > 0:
+            self.template[self.idelay:] = tm[:-self.idelay]  # shift the template
+        else:
+            self.template = tm
+        if self.sign > 0:
+            self.template_amax = np.max(self.template)
+        else:
+            self.template = -self.template
+            self.template_amax = np.min(self.template)
     
     def set_cb_engine(self, engine):
         """
@@ -345,7 +631,8 @@ class ClementsBekkers(MiniAnalyses):
 
     def clements_bekkers(self,  data):
         """
-        Implements Clements-bekkers algorithm: slides template across data,          returns array of points indicating goodness of fit.
+        Implements Clements-bekkers algorithm: slides template across data,
+        returns array of points indicating goodness of fit.
         Biophysical Journal,  73: 220-229,  1997.
         
         Parameters
@@ -423,8 +710,7 @@ class AndradeJonas(MiniAnalyses):
         self.template = None  # reset the template if needed.
         self.eventstartthr = eventstartthr
         self.risepower = risepower
-
-            
+ 
     def _make_template(self):
         """
         Private function: make template when it is needed
@@ -433,7 +719,7 @@ class AndradeJonas(MiniAnalyses):
         t_psc = np.arange(0,  self.template_tmax,  self.dt)
         Aprime = (tau_2/tau_1)**(tau_1/(tau_1-tau_2))
         self.template = np.zeros_like(t_psc)
-        tm = 1./Aprime * ((1-(np.exp(-t_psc/tau_1)))**4 * np.exp((-t_psc/tau_2)))
+        tm = 1./Aprime * ((1-(np.exp(-t_psc/tau_1)))**self.risepower * np.exp((-t_psc/tau_2)))
         
         if self.idelay > 0:
             self.template[self.idelay:] = tm[:-self.idelay]  # shift the template
@@ -444,8 +730,7 @@ class AndradeJonas(MiniAnalyses):
         else:
             self.template = -self.template
             self.template_amax = np.min(self.template)
-            
-        
+
     def deconvolve(self,  data,  thresh=1.0,  llambda=5.0,  order=7):
         if self.template is None:
             self._make_template()
@@ -478,8 +763,10 @@ def moving_average(a,  n=3) :
 
 
 def generate_testdata(dt,  maxt=1e4, meanrate=10,  amp=20.,  ampvar=5.,  
-        noise=2.5, taus=[1.0, 10.0], func=None, sign=1, expseed=None, noiseseed=None):
+        noise=2.5, taus=[1.0, 10.0], baseclass=None, func=None, sign=1, expseed=None, noiseseed=None):
 
+    if baseclass is None and func is not None:
+        raise ValueError('Need base class definition')
     tdur = 100.
     timebase = np.arange(0.,  maxt,  dt) # in ms
     t_psc = np.arange(0.,  tdur,  dt)  # time base for single event template in ms
@@ -490,7 +777,7 @@ def generate_testdata(dt,  maxt=1e4, meanrate=10,  amp=20.,  ampvar=5.,
         Aprime = (tau_2/tau_1)**(tau_1/(tau_1-tau_2))
         g = Apeak/Aprime * (-np.exp(-t_psc/tau_1) + np.exp((-t_psc/tau_2)))
     else:
-        func._make_template()
+        baseclass._make_template()
         g = amp*func.template
     g = g * sign  # negative going events if sign neegative
 
@@ -545,10 +832,11 @@ def aj_tests():
     dt = 0.1
     for i in range(10):
         aj = AndradeJonas()
-        aj.setup(tau1=1.,  tau2=5.,  dt=dt,  delay=0.0, template_tmax=trace_dur,  sign=sign)
+        aj.setup(tau1=1.,  tau2=5.,  dt=dt,  delay=0.0, template_tmax=trace_dur, 
+            sign=sign, risepower=4.0)
         # generate test data
         timebase,  testpsc,  testpscn,  i_events = generate_testdata(aj.dt, maxt=trace_dur,
-                amp=20.,  ampvar=10.,  noise=5.0, taus=[1., 5.], func=None, sign=sign,
+                amp=20.,  ampvar=10.,  noise=2.0, taus=[1., 5.], func=None, sign=sign,
                 expseed=i, noiseseed=i*47)
         print(int(1./aj.dt))
         aj.deconvolve(testpscn-np.mean(testpscn),  thresh=2.0, llambda=7,  order=int(1.0/aj.dt))
@@ -558,4 +846,6 @@ def aj_tests():
 
 if __name__ == "__main__":
     aj = aj_tests()
+    aj.fit_individual_events()
+    aj.plot_individual_events()
     #cb_tests()
