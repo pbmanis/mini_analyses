@@ -43,9 +43,9 @@ def make_table(basepath=None):
         print('make_table: must set basepath')
     
     days = os.listdir(basepath)
-    print ("basepath = '%s'" % basepath)
+    print(("basepath = '%s'" % basepath))
 
-    print ''
+    print('')
     mouseno = 0
     dicttext = 'datasets = {\n'
     for d in days:
@@ -91,5 +91,5 @@ def make_table(basepath=None):
                 dicttext = dicttext + ("'prots': {0:s},".format(protocollist))
                 dicttext = dicttext + (" 'thr': 1.75, 'rt': 0.35, 'decay': 6., 'G': '" + genotype + "'},\n")
     dicttext = dicttext + '}'        
-    print dicttext
+    print(dicttext)
 

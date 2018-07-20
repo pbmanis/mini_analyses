@@ -55,9 +55,9 @@ import matplotlib.gridspec as gridspec
 import scipy.signal
 import scipy.stats
 
-import minis_methods as minis
+import minis.minis_methods as minis
 import pylibrary.Utility as PU
-import digital_filters as DF
+import minis.digital_filters as DF
 import pylibrary.PlotHelpers as PH
 import ephysanalysis as EP
 from matplotlib.backends.backend_pdf import PdfPages

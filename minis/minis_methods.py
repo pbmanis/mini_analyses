@@ -19,7 +19,7 @@ import matplotlib.pyplot as mpl
 import timeit
 from scipy.optimize import curve_fit
 from numba import jit
-import digital_filters as dfilt
+import minis.digital_filters as dfilt
 #import clembek
 import pylibrary.PlotHelpers as PH
 
