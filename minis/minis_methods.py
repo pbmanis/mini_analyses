@@ -20,7 +20,7 @@ import timeit
 from scipy.optimize import curve_fit
 from numba import jit
 import digital_filters as dfilt
-import clembek
+#import clembek
 import pylibrary.PlotHelpers as PH
 
 
@@ -32,6 +32,7 @@ class MiniAnalyses():
         Allows use of common methods between different algorithms
         """
         self.risepower = 4.
+        self.min_event_amplitude = 5.0 # pA default
         pass
 
     def _make_template(self, taus=None):
@@ -46,8 +47,8 @@ class MiniAnalyses():
         t_psc = np.arange(0,  self.template_tmax,  self.dt)
         Aprime = (tau_2/tau_1)**(tau_1/(tau_1-tau_2))
         self.template = np.zeros_like(t_psc)
-       # tm = 1./Aprime * ((1-(np.exp(-t_psc/tau_1)))**self.risepower * np.exp((-t_psc/tau_2)))
-        tm = 1./2. * (np.exp(-t_psc/tau_1) - np.exp(-t_psc/tau_2))
+        tm = 1./Aprime * ((1-(np.exp(-t_psc/tau_1)))**self.risepower * np.exp((-t_psc/tau_2)))
+       # tm = 1./2. * (np.exp(-t_psc/tau_1) - np.exp(-t_psc/tau_2))
         if self.idelay > 0:
             self.template[self.idelay:] = tm[:-self.idelay]  # shift the template
         else:
@@ -68,6 +69,7 @@ class MiniAnalyses():
         self.smpkindex = []
         self.smoothed_peaks = []
         self.amplitudes = []
+        self.Qtotal = []
         self.averaged = False  # set flags in case of no events found
         self.individual_events = False
         self.fitted = False
@@ -139,6 +141,7 @@ class MiniAnalyses():
         if k > 0:
             self.allevents = self.allevents[0:k, :]  # trim unused
             self.avgevent = self.allevents.mean(axis=0)
+            self.avgevent = self.avgevent-np.mean(self.avgevent[:3])
             self.avgeventtb = np.arange(self.avgevent.shape[0])*self.dt
             self.averaged = True
         else:
@@ -205,12 +208,14 @@ class MiniAnalyses():
         # allocate arrays for results. Arrays have space for ALL events
         # okevents, notok, and evok are indices
         nevents = len(self.allevents)  # self.onsets.shape[0]
-        self.ev_amp = np.zeros(nevents)  # measured amplitude from the fit
-        self.ev_fitamp = np.zeros(nevents)  # fit amplitude - raw value can be quite different than true amplitude.....
+        self.ev_fitamp = np.zeros(nevents)  # measured peak amplitude from the fit
+        self.ev_A_fitamp = np.zeros(nevents)  # fit amplitude - raw value can be quite different than true amplitude.....
         self.ev_tau1 = np.zeros(nevents)
         self.ev_tau2 = np.zeros(nevents)
         self.ev_1090 = np.zeros(nevents)
         self.ev_2080 = np.zeros(nevents)
+        self.ev_amp = np.zeros(nevents)  # measured peak amplitude from the event itself
+        self.ev_Qtotal = np.zeros(nevents)  # measured charge of the event (integral of current * dt)
         self.fiterr = np.zeros(nevents)
         self.bfdelay = np.zeros(nevents)
         self.best_fit = np.zeros((nevents, self.avgeventtb.shape[0]))
@@ -254,7 +259,7 @@ class MiniAnalyses():
             # dexpmodel = Model(self.doubleexp)
             # params = dexpmodel.make_params(A=-10.,  tau_1=0.5,  tau_2=4.0,  dc=0.)
             # self.fitresult = dexpmodel.fit(self.avgevent[tsel:],  params,  x=self.avgeventtb[tsel:])
-            self.ev_fitamp[i] = self.fitresult[0]
+            self.ev_A_fitamp[i] = self.fitresult[0]
             self.ev_tau1[i] = self.fitresult[1]
             self.ev_tau2[i] = self.fitresult[2]
             self.bfdelay[i] = self.fitresult[3]
@@ -264,7 +269,9 @@ class MiniAnalyses():
                                                 np.zeros_like(self.avgeventtb), 
                                                 risepower=self.risepower, fixed_delay=self.bfdelay[i], mode=0)
             self.best_decay_fit[i] = self.decay_fit  # from event_fitter
-            self.ev_amp[i] = np.max(self.best_fit[i])
+            self.ev_fitamp[i] = np.max(self.best_fit[i])
+            self.ev_Qtotal[i] = self.dt*np.sum(self.sign*self.allevents[i,:])
+            self.ev_amp[i] = np.max(self.sign*self.allevents[i,:])
         self.individual_event_screen(fit_err_limit=2000., tau2_range=10.)
         self.individual_events = True  # we did this step
 
@@ -307,7 +314,7 @@ class MiniAnalyses():
         #print('res rise: ', res_rise.x)
         
         # fit decay exponential next:
-        bounds_decay  = [(0., self.tau2/4.), (10000., self.tau2*4.)]  # be sure init values are inside bounds
+        bounds_decay  = [(0., self.tau2/5.), (100000., self.tau2*10.)]  # be sure init values are inside bounds
         init_vals_decay = [np.max((0., np.max(self.sign*event))),  self.tau2]
         decay_fit_start = peak_pos + int(time_past_peak/self.dt) + int(res_rise.x[2]/self.dt)
         res_decay = scipy.optimize.least_squares(self.decayexp, init_vals_decay,
@@ -318,12 +325,12 @@ class MiniAnalyses():
         # now tune by fitting the whole trace, allowing some (but not too much) flexibility
         self.decayfitresult = res_decay.x
         bounds_full  = [(0.2*res_rise.x[0], 5.0*res_rise.x[0]), # rise amplitude
-                        (res_rise.x[1]*0.5, res_rise.x[1]*2.0),  # rise tau
-                        (res_decay.x[1]*0.8, res_decay.x[1]*1.25),  # decay tau
+                        (res_rise.x[1]*0.5, res_rise.x[1]*5.0),  # rise tau
+                        (res_decay.x[1]*0.5, res_decay.x[1]*20.0),  # decay tau
                         (res_rise.x[2], res_rise.x[2])  # fixed delay time
                     ]
         init_vals = [res_rise.x[0],  res_rise.x[1], res_decay.x[1], res_rise.x[2]]  # be sure init values are inside bounds
-        res = scipy.optimize.minimize(self.doubleexp, init_vals, method='SLSQP',
+        res = scipy.optimize.minimize(self.doubleexp, init_vals, method='L-BFGS-B', #'SLSQP',
                         args=(self.avgeventtb, self.sign*(event-ev_bl), 
                         self.risepower, res_rise.x[2], 1),
                         bounds=bounds_full, 
@@ -351,7 +358,7 @@ class MiniAnalyses():
         for i in self.fitted_events:  # these are the events that were fit
             if self.fiterr[i] <= fit_err_limit:
                 if  self.ev_tau2[i] <= self.tau2_range*self.tau2:
-                    if self.ev_amp[i] > 5.:
+                    if self.ev_fitamp[i] > self.min_event_amplitude:
                         if self.ev_tau1[i] > self.tau1/self.tau1_minimum_factor:
                             self.events_ok.append(i)
         self.events_notok = list(set(self.fitted_events).difference(self.events_ok))
@@ -389,7 +396,14 @@ class MiniAnalyses():
                         verticalspacing=0.1, horizontalspacing=0.12,
                         margins={'leftmargin': 0.12, 'rightmargin': 0.12, 'topmargin': 0.03, 'bottommargin': 0.1},
                         labelposition=(-0.12, 0.95))
-
+        P3 = PH.regular_grid(1 , 5, order='columns', figsize=(12, 8.), showgrid=False,
+                        verticalspacing=0.1, horizontalspacing=0.12,
+                        margins={'leftmargin': 0.12, 'rightmargin': 0.12, 'topmargin': 0.03, 'bottommargin': 0.1},
+                        labelposition=(-0.12, 0.95))        
+        idx = [a for a in P3.axdict.keys()]
+        ncol = 5
+        offset2 = 0.
+        k = 0
         for i in evok:
           #  print(self.ev_tau1, self.ev_tau2)
             offset = i*3.0
@@ -401,7 +415,15 @@ class MiniAnalyses():
             #y = p[0] * (((np.exp(-x/p[1]))) - np.exp(-x/p[2]))
             P2.axdict['A'].plot(self.avgeventtb, self.sign*self.best_fit[i]+offset, 'c--', linewidth=0.3)
             P2.axdict['A'].plot(self.avgeventtb, self.sign*self.best_decay_fit[i]+offset, 'r--', linewidth=0.3)
-            
+            P3.axdict[idx[k]].plot(self.avgeventtb, self.allevents[i]+offset2, 'k--', linewidth=0.3)
+            P3.axdict[idx[k]].plot(self.avgeventtb, self.sign*self.best_fit[i]+offset2, 'r--', linewidth=0.3)
+            if k == 4:
+                k = 0
+                offset2 += 10.
+            else:
+                k += 1
+        
+         
         if show:
             mpl.show()
 
@@ -450,6 +472,7 @@ class MiniAnalyses():
         i37 = np.argmin(np.fabs(ave[ipk:]-p37))
         self.risetenninety = self.dt*(i90-i10)
         self.decaythirtyseven = self.dt*(i37-ipk)
+        self.Qtotal = self.dt*np.sum(self.avgevent[self.tsel:])
         self.fitted = True
 
     def plots(self,  events=None,  title=None):
@@ -508,7 +531,8 @@ class MiniAnalyses():
             ax[2].set_ylabel('Averaged I (pA)')
             ax[2].set_xlabel('T (ms)')
             ax[2].legend(fontsize=8, loc=2, bbox_to_anchor=(1.0, 1.0))
-        print('measures: ', self.risetenninety, self.decaythirtyseven)
+        if self.fitted:
+            print('measures: ', self.risetenninety, self.decaythirtyseven)
         mpl.show()
         
 
@@ -555,10 +579,10 @@ class ClementsBekkers(MiniAnalyses):
         self.dt = None
         self.data = None
         self.template = None
-        self.engine = 'cython'
+        self.engine = 'numba'
 
     def setup(self, tau1=None,  tau2=None,  template_tmax=None,  dt=None,  
-            delay=0.0,  sign=1, eventstartthr=None, risepower=4.0):
+            delay=0.0,  sign=1, eventstartthr=None, risepower=4.0, min_event_amplitude=2.0):
         """
         Just store the parameters - will compute when needed
         """
@@ -571,6 +595,7 @@ class ClementsBekkers(MiniAnalyses):
         self.template = None  # reset the template if needed.
         self.eventstartthr = eventstartthr
         self.risepower = risepower
+        self.min_event_amplitude = min_event_amplitude
 
     def _make_template(self):
         """
@@ -610,24 +635,26 @@ class ClementsBekkers(MiniAnalyses):
         D = data.view(np.ndarray)
         DC, self.Scale, self.Crit = nb_clementsbekkers(D,  self.template)
         
-    def clements_bekkers_cython(self,  data):
-        if self.template is None:
-            self._make_template()    
-        self.timebase = np.arange(0.,  self.data.shape[0]*self.dt,  self.dt)
-        D = data.view(np.ndarray)
-        T = self.template.view(np.ndarray)
-        crit = np.zeros_like(D)
-        scale = np.zeros_like(D)
-        offset = np.zeros_like(D)
-        pkl = np.zeros(10000)
-        evl = np.zeros(10000)
-        nout = 0
-        nt = T.shape[0]
-        nd = D.shape[0]
-        clembek.clembek(D,  T,  self.threshold,  crit,  scale,  offset,  pkl,  evl,  nout,  self.sign,  nt,  nd)
-        self.Scale = scale
-        self.Crit = crit
-        self.DC = offset
+    # def clements_bekkers_cython(self,  data):
+    #     pass
+    #     ### broken for py3 at the moment
+    #     if self.template is None:
+    #         self._make_template()
+    #     self.timebase = np.arange(0.,  self.data.shape[0]*self.dt,  self.dt)
+    #     D = data.view(np.ndarray)
+    #     T = self.template.view(np.ndarray)
+    #     crit = np.zeros_like(D)
+    #     scale = np.zeros_like(D)
+    #     offset = np.zeros_like(D)
+    #     pkl = np.zeros(10000)
+    #     evl = np.zeros(10000)
+    #     nout = 0
+    #     nt = T.shape[0]
+    #     nd = D.shape[0]
+    #     clembek.clembek(D,  T,  self.threshold,  crit,  scale,  offset,  pkl,  evl,  nout,  self.sign,  nt,  nd)
+    #     self.Scale = scale
+    #     self.Crit = crit
+    #     self.DC = offset
 
     def clements_bekkers(self,  data):
         """
@@ -697,7 +724,7 @@ class AndradeJonas(MiniAnalyses):
         self.idelay = 0
 
     def setup(self,  tau1=None,  tau2=None,  template_tmax=None,  dt=None,  
-            delay=0.0,  sign=1, eventstartthr=None, risepower=4.):
+            delay=0.0,  sign=1, eventstartthr=None, risepower=4., min_event_amplitude=2.0):
         """
         Just store the parameters - will compute when needed
         """
@@ -710,6 +737,8 @@ class AndradeJonas(MiniAnalyses):
         self.template = None  # reset the template if needed.
         self.eventstartthr = eventstartthr
         self.risepower = risepower
+        self.min_event_amplitude = min_event_amplitude
+        
  
     def _make_template(self):
         """
@@ -767,7 +796,7 @@ def generate_testdata(dt,  maxt=1e4, meanrate=10,  amp=20.,  ampvar=5.,
 
     if baseclass is None and func is not None:
         raise ValueError('Need base class definition')
-    tdur = 100.
+    tdur = 20.
     timebase = np.arange(0.,  maxt,  dt) # in ms
     t_psc = np.arange(0.,  tdur,  dt)  # time base for single event template in ms
     if func is None:
@@ -775,26 +804,29 @@ def generate_testdata(dt,  maxt=1e4, meanrate=10,  amp=20.,  ampvar=5.,
         tau_2 = taus[1] # ms
         Apeak = amp # pA
         Aprime = (tau_2/tau_1)**(tau_1/(tau_1-tau_2))
-        g = Apeak/Aprime * (-np.exp(-t_psc/tau_1) + np.exp((-t_psc/tau_2)))
+        g = sign*Apeak/Aprime * (-np.exp(-t_psc/tau_1) + np.exp((-t_psc/tau_2)))
     else:
         baseclass._make_template()
-        g = amp*func.template
-    g = g * sign  # negative going events if sign neegative
+        g = amp*baseclass.template
+#    g = g * sign  # negative going events if sign neegative
 
         
     testpsc = np.zeros(timebase.shape)
     if expseed is None:
-        eventintervals = np.random.exponential(1e3/meanrate, int(maxt))
+        eventintervals = np.random.exponential(1e3/meanrate, int(maxt/meanrate))
     else:
         np.random.seed(expseed)
-        eventintervals = np.random.exponential(1e3/meanrate, int(maxt))
-        
+        eventintervals = np.random.exponential(1e3/meanrate, int(maxt/meanrate))
+    eventintervals = eventintervals[eventintervals < 1e4]
     events = np.cumsum(eventintervals)
     t_events = events[events < maxt]  # time of events with exp distribution
     i_events = np.array([int(x/dt) for x in t_events])
     testpsc[i_events] = np.random.normal(1.,  ampvar/amp,  len(i_events))
-    i_events = i_events-int((tdur)/dt)
-    testpsc = scipy.signal.convolve(testpsc,  g,  mode='same')
+#    i_events = i_events-int((tdur)/dt)
+    testpsc = scipy.signal.convolve(testpsc,  g,  mode='full')[:timebase.shape[0]]
+    # f, ax = mpl.subplots(1,1)
+    # ax.plot(dt*np.arange(len(testpsc)), testpsc)
+    # mpl.show()
     if noise > 0:
         if noiseseed is None:
             testpscn = testpsc + np.random.normal(0.,  noise,  testpsc.shape)
@@ -820,7 +852,7 @@ def cb_tests():
             expseed=i, noiseseed=i*47)
         cb = ClementsBekkers()
         cb.setup(tau1=0.5,  tau2=2.5,  dt=dt,  delay=0.0, template_tmax=3*taus[1],  sign=sign)
-        cb._make_template(taus=[0.3, 3.5])
+        cb._make_template()
         cb.cbTemplateMatch(testpscn,  threshold=2.0)
     cb.plots()
     return cb
@@ -836,7 +868,7 @@ def aj_tests():
             sign=sign, risepower=4.0)
         # generate test data
         timebase,  testpsc,  testpscn,  i_events = generate_testdata(aj.dt, maxt=trace_dur,
-                amp=20.,  ampvar=10.,  noise=2.0, taus=[1., 5.], func=None, sign=sign,
+                amp=20.,  ampvar=10.,  noise=3.0, taus=[1., 5.], baseclass=aj, func=1, sign=sign,
                 expseed=i, noiseseed=i*47)
         print(int(1./aj.dt))
         aj.deconvolve(testpscn-np.mean(testpscn),  thresh=2.0, llambda=7,  order=int(1.0/aj.dt))

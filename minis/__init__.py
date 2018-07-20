@@ -7,14 +7,14 @@ init for minis
 version_info = (0, 1, 9, '')
 __version__ = '%d.%d.%d%s' % version_info
 
-import clements_bekkers
-import digital_filters
-import make_table
-import minis_methods
-import mini_analysis
+import minis.clements_bekkers
+import minis.digital_filters
+import minis.make_table
+import minis.minis_methods
+import minis.mini_analysis
 #import mini_summary
-import mini_summary_plots
-import clembek
+import minis.mini_summary_plots
+#import minis.clembek
 
 
 

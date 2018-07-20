@@ -138,10 +138,10 @@ class AndradeJonas(object):
         # Weiner filter deconvolution
         self.timebase = np.arange(0., data.shape[0]*dt, dt)
         H = np.fft.fft(self.template[:data.shape[0]])
-        print self.timebase.shape
-        print self.template.shape
-        print H.shape
-        print data.shape
+        print(self.timebase.shape)
+        print(self.template.shape)
+        print(H.shape)
+        print(data.shape)
         self.quot = np.real(np.fft.ifft(np.fft.fft(data)*np.conj(H)/(H*np.conj(H) + llambda**2)))
         sd = np.std(self.quot)
         self.sdthr = sd * thresh  # set the threshold
@@ -229,8 +229,8 @@ def cb_tests():
     dc, s, crit = cb.clements_bekkers(tdn, template)
     fig, ax = mpl.subplots(4, 1)
     ax[0].plot(tb, tdn)
-    print tb.shape
-    print dc.shape
+    print(tb.shape)
+    print(dc.shape)
     ax[1].plot(tb[:dc.shape[0]], dc)
     ax[2].plot(tb[:s.shape[0]], s)
     ax[3].plot(tb[:crit.shape[0]], crit)

@@ -140,7 +140,7 @@ def SignalFilter_LPFBessel(signal, LPF, samplefreq, NPole=8, reduce=False):
                 w[i,j,:] = w1
         return(w)
     if signal.ndim > 3:
-        print "Error: signal dimesions of > 3 are not supported (no filtering applied)"
+        print("Error: signal dimesions of > 3 are not supported (no filtering applied)")
         return signal
 
 def SignalFilter_Bandpass(signal, HPF, LPF, samplefreq):
