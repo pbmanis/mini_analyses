@@ -59,7 +59,7 @@ class MiniAnalyses():
             self.template = -self.template
             self.template_amax = np.min(self.template)    
 
-    def summarize(self,  data, order=11):
+    def summarize(self,  data, order=11, verbose=False):
         """
         compute intervals,  peaks and ampitudes for all found events
         """
@@ -111,13 +111,15 @@ class MiniAnalyses():
                     self.smpkindex.extend([self.onsets[j]+pk])
                     acceptlist.append(j)
             if len(acceptlist) < len(self.onsets):
-                print('Trimmed %d events' % (len(self.onsets)-len(acceptlist)))
+                if verbose:
+                    print('Trimmed %d events' % (len(self.onsets)-len(acceptlist)))
                 self.onsets = self.onsets[acceptlist] # trim to only the accepted values
                 
             self.average_events()
             self.fit_average_event()
         else:
-            print('No events found')
+            if verbose:
+                print('No events found')
             return
 
     def average_events(self):
@@ -317,9 +319,20 @@ class MiniAnalyses():
         bounds_decay  = [(0., self.tau2/5.), (100000., self.tau2*10.)]  # be sure init values are inside bounds
         init_vals_decay = [np.max((0., np.max(self.sign*event))),  self.tau2]
         decay_fit_start = peak_pos + int(time_past_peak/self.dt) + int(res_rise.x[2]/self.dt)
+        # print('initvals: ', init_vals_decay)
+        # print('bounds: ', bounds_decay)
+        # print('sign: ', self.sign)
+        # print('rise: ', res_rise.x)
+        # try:
         res_decay = scipy.optimize.least_squares(self.decayexp, init_vals_decay,
                         bounds=bounds_decay, args=(self.avgeventtb[decay_fit_start:], 
                         self.sign*(event[decay_fit_start:] - ev_bl), res_rise.x[2], 0))
+        # except:
+        #     mpl.figure()
+        #     mpl.plot(self.avgeventtb[decay_fit_start:],
+        #                 self.sign*(event[decay_fit_start:] - ev_bl))
+        #     mpl.show()
+        #     raise ValueError ('l')
         self.res_decay = res_decay
         
         # now tune by fitting the whole trace, allowing some (but not too much) flexibility
@@ -760,7 +773,7 @@ class AndradeJonas(MiniAnalyses):
             self.template = -self.template
             self.template_amax = np.min(self.template)
 
-    def deconvolve(self,  data,  thresh=1.0,  llambda=5.0,  order=7):
+    def deconvolve(self,  data,  thresh=1.0,  llambda=5.0,  order=7, verbose=False):
         if self.template is None:
             self._make_template()
         self.data = dfilt.SignalFilter_LPFButter(data,  3000.,  1000/self.dt,  NPole=8)
@@ -780,7 +793,8 @@ class AndradeJonas(MiniAnalyses):
         self.onsets = scipy.signal.argrelextrema(self.above,  np.greater,  order=int(order))[0] - 1 + self.idelay
         self.summarize(data)
         endtime = timeit.default_timer() - starttime
-        print('AJ run time: {0:.4f} s'.format(endtime))
+        if verbose:
+            print('AJ run time: {0:.4f} s'.format(endtime))
 
 
 #  Some general functions
