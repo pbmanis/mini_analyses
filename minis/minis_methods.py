@@ -15,7 +15,8 @@ July 2017
 import numpy as np
 import scipy.signal
 import matplotlib.pyplot as mpl
-
+import warnings  # need to turn off a scipy future warning.
+warnings.filterwarnings("ignore", category=FutureWarning)
 import timeit
 from scipy.optimize import curve_fit
 from numba import jit
@@ -23,6 +24,9 @@ import minis.digital_filters as dfilt
 #import clembek
 import pylibrary.PlotHelpers as PH
 
+# ANSI terminal colors  - just put in as part of the string to get color terminal output
+colors = {'red': '\x1b[31m', 'yellow': '\x1b[33m', 'green': '\x1b[32m', 'magenta': '\x1b[35m',
+              'blue': '\x1b[34m', 'cyan': '\x1b[36m' , 'white': '\x1b[0m', 'backgray': '\x1b[100m'}
 
 class MiniAnalyses():
     def __init__(self):
@@ -777,13 +781,13 @@ class AndradeJonas(MiniAnalyses):
             self.template = -self.template
             self.template_amax = np.min(self.template)
 
-    def deconvolve(self,  data,  thresh=1.0,  llambda=5.0,  order=7, verbose=False):
+    def deconvolve(self,  data,  data_nostim=None, thresh=1.0,  llambda=5.0,  order=7, verbose=False):
         if self.template is None:
             self._make_template()
         self.data = dfilt.SignalFilter_LPFButter(data,  3000.,  1000/self.dt,  NPole=8)
         self.timebase = np.arange(0.,  self.data.shape[0]*self.dt,  self.dt)
     #    print (np.max(self.timebase), self.dt)
-
+        
         # Weiner filtering
         starttime = timeit.default_timer()
         H = np.fft.fft(self.template)
@@ -791,7 +795,11 @@ class AndradeJonas(MiniAnalyses):
             H = np.hstack((H,  np.zeros(self.data.shape[0]-H.shape[0])))
         self.quot = np.fft.ifft(np.fft.fft(self.data)*np.conj(H)/(H*np.conj(H) + llambda**2.0))
         self.Crit = np.real(self.quot)
-        sd = np.std(self.Crit)
+        if data_nostim is None:
+            data_nostim = [range(self.Crit.shape[0])]  # whole trace, otherwise remove stimuli
+        else:  # clip to max of crit array, and be sure index array is integer, not float
+            data_nostim = [int(x) for x in data_nostim if x < self.Crit.shape[0]]
+        sd = np.nanstd(self.Crit[data_nostim])
         self.sdthr = sd * thresh  # set the threshold
         self.above = np.clip(self.Crit,  self.sdthr,  None)
         self.onsets = scipy.signal.argrelextrema(self.above,  np.greater,  order=int(order))[0] - 1 + self.idelay
