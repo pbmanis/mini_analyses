@@ -480,7 +480,11 @@ class MiniAnalyses():
         p10 = 0.1*pk
         p90 = 0.9*pk
         p37 = 0.37*pk
-        i10 = np.argmin(np.fabs(ave[:ipk]-p10))
+        try:
+            i10 = np.argmin(np.fabs(ave[:ipk]-p10))
+        except:
+            self.fitted = False
+            return
         i90 = np.argmin(np.fabs(ave[:ipk]-p90))
         i37 = np.argmin(np.fabs(ave[ipk:]-p37))
         self.risetenninety = self.dt*(i90-i10)
