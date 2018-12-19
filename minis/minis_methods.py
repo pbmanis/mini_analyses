@@ -552,13 +552,13 @@ class MiniAnalyses():
             #print(len(self.avgeventtb[:len(self.template)]), len(self.template))
             ax[2].plot(self.avgeventtb[:len(self.avgevent)],  scf*self.sign*self.template[:len(self.avgevent)]*maxa/self.template_amax,  
                 'r-', label='Template')
-            ax[2].plot(self.avgeventtb[:len(self.avg_best_fit)],  scf*self.avg_best_fit,  'c--', linewidth=2.0, 
-                label='Best Fit:\nRise Power={0:.2f}\nTau1={1:.2f} ms\nTau2={2:.3f} ms\ndelay: {3:.3f}) ms'.
-                        format(self.risepower, self.tau1*1e3, self.tau2*1e3, self.bfdelay*1e3))
+            # ax[2].plot(self.avgeventtb[:len(self.avg_best_fit)],  scf*self.avg_best_fit,  'c--', linewidth=2.0,
+            #     label='Best Fit:\nRise Power={0:.2f}\nTau1={1:.2f} ms\nTau2={2:.3f} ms\ndelay: {3:.3f}) ms'.
+            #             format(self.risepower, self.tau1*1e3, self.tau2*1e3, self.bfdelay*1e3))
             ax[2].plot(self.avgeventtb[:len(self.decay_fit)],  self.sign*scf*self.decay_fit,  'm--', linewidth=1.0, 
-                label='decay')
+                label='Decay tau {0:.2f} ms'.format(self.tau2*1e3))
             ax[2].plot(self.avgeventtb[:len(self.decay_fit)],  self.sign*scf*self.rise_fit,  'g--', linewidth=1.0, 
-                label='rise')
+                label='Rise tau  {0:.2f} ms'.format(self.tau1*1e3))
             if title is not None:
                 P.figure_handle.suptitle(title)
             ax[2].set_ylabel('Averaged I (pA)')
