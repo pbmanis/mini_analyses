@@ -119,14 +119,14 @@ class MiniAnalyses():
                     print('Trimmed %d events' % (len(self.onsets)-len(acceptlist)))
                 self.onsets = self.onsets[acceptlist] # trim to only the accepted values
                 
-            self.average_events()
-            self.fit_average_event()
+            self.avgevent, self.avgeventtb, self.allevents = self.average_events(self.onsets)
+            self.fit_average_event(self.avgeventtb, self.avgevent)
         else:
             if verbose:
                 print('No events found')
             return
 
-    def average_events(self):
+    def average_events(self, eventlist):
         # compute average event with length of template
         tdur = np.max((np.max(self.taus)*5.0, 10.0))  # go 3 taus or 5 ms past event
         tpre = 0 # self.taus[0]*10.
@@ -136,22 +136,23 @@ class MiniAnalyses():
         npre = int(tpre/self.dt) # points for the pre time
         npost = int(tdur/self.dt)
         avg = np.zeros(self.avgnpts)
-        self.allevents = np.zeros((len(self.onsets),  self.avgnpts))
+        allevents = np.zeros((len(eventlist),  self.avgnpts))
         k = 0
         pkt = 0 # np.argmax(self.template)
-        for j, i in enumerate(self.onsets):
+        for j, i in enumerate(eventlist):
             ix = i + pkt # self.idelay
             if (ix + npost) < len(self.data) and (ix - npre) >= 0:
-                self.allevents[k,:] = self.data[ix-npre:ix+npost]
+                allevents[k,:] = self.data[ix-npre:ix+npost]
                 k = k + 1
         if k > 0:
-            self.allevents = self.allevents[0:k, :]  # trim unused
-            self.avgevent = self.allevents.mean(axis=0)
-            self.avgevent = self.avgevent-np.mean(self.avgevent[:3])
-            self.avgeventtb = np.arange(self.avgevent.shape[0])*self.dt
+            allevents = allevents[0:k, :]  # trim unused
+            avgevent = allevents.mean(axis=0)
+            avgevent = avgevent-np.mean(avgevent[:3])
+            avgeventtb = np.arange(avgevent.shape[0])*self.dt
             self.averaged = True
         else:
             self.averaged = False
+        return(avgevent, avgeventtb, allevents)
 
     def doubleexp(self, p, x, y, risepower, fixed_delay=0., mode=0):
         """
@@ -196,7 +197,59 @@ class MiniAnalyses():
         else:
             return np.linalg.norm(tm-y)
 
-    def fit_individual_events(self):
+    def fit_average_event(self, tb, average_event):
+        """
+        Fit the averaged event to a double exponential epsc-like function
+        """
+        if not self.averaged:  # avoid fit if averaging has not been done
+            return
+        #tsel = np.argwhere(self.avgeventtb > self.tpre)[0]  # only fit data in event,  not baseline
+        tsel = 0  # use whole averaged trace
+        self.tsel = tsel
+        self.tau1 = 1
+        self.tau2 = 5
+        self.tau2_range = 10.
+        self.tau1_minimum_factor = 5.
+        time_past_peak = 0.5
+        # peak_pos = np.argmax(self.sign*self.avgevent[self.tsel:])
+        # decay_fit_start = peak_pos + int(time_past_peak/self.dt)
+        # init_vals = [self.sign*10.,  1.0,  4., 0.]
+        # init_vals_exp = [20.,  5.0]
+        # bounds_exp  = [(0., 0.5), (10000., 50.)]
+        
+        res = self.event_fitter(average_event, time_past_peak=time_past_peak)
+#        print('res for average event: ', res.x)
+        self.fitresult = res.x
+        self.Amplitude = self.fitresult[0]
+        self.tau1 = self.fitresult[1]
+        self.tau2 = self.fitresult[2]
+        self.bfdelay = self.fitresult[3]
+        self.DC = 0. # best_vals[3]
+#        print('best delay: ', self.bfdelay, self.bferr)
+        avg_fit = self.doubleexp(res.x, tb[self.tsel:],
+            np.zeros_like(tb[self.tsel:]), risepower=self.risepower, mode=0, fixed_delay=self.bfdelay)
+        fiterr = np.linalg.norm(avg_fit-average_event[self.tsel:])
+        self.avg_best_fit = self.sign*avg_fit
+       # self.decayfitresult = res_decay.x
+        ave = self.sign*average_event
+        ipk = np.argmax(ave)
+        pk = ave[ipk]
+        p10 = 0.1*pk
+        p90 = 0.9*pk
+        p37 = 0.37*pk
+        try:
+            i10 = np.argmin(np.fabs(ave[:ipk]-p10))
+        except:
+            self.fitted = False
+            return
+        i90 = np.argmin(np.fabs(ave[:ipk]-p90))
+        i37 = np.argmin(np.fabs(ave[ipk:]-p37))
+        self.risetenninety = self.dt*(i90-i10)
+        self.decaythirtyseven = self.dt*(i37-ipk)
+        self.Qtotal = self.dt*np.sum(average_event[self.tsel:])
+        self.fitted = True
+
+    def fit_individual_events(self, onsets):
         """
         Fitting individual events
         Events to be fit are selected from the entire event pool as:
@@ -213,7 +266,7 @@ class MiniAnalyses():
         
         # allocate arrays for results. Arrays have space for ALL events
         # okevents, notok, and evok are indices
-        nevents = len(self.allevents)  # self.onsets.shape[0]
+        nevents = len(self.allevents)  # onsets.shape[0]
         self.ev_fitamp = np.zeros(nevents)  # measured peak amplitude from the fit
         self.ev_A_fitamp = np.zeros(nevents)  # fit amplitude - raw value can be quite different than true amplitude.....
         self.ev_tau1 = np.zeros(nevents)
@@ -234,15 +287,15 @@ class MiniAnalyses():
         minint = self.avgeventdur # msec minimum interval between events.
         self.fitted_events = []  # events that can be used (may not be all events, but these are the events that were fit)
         for i in range(nevents):
-            te = self.timebase[self.onsets[i] ] # get current event
+            te = self.timebase[onsets[i] ] # get current event
             try:
-                tn = self.timebase[self.onsets[i+1]]  # check time to next event
+                tn = self.timebase[onsets[i+1]]  # check time to next event
                 if tn-te < minint:  # event is followed by too soon by another event
                     continue
             except:
                     pass  # just handle trace end condition
             try:
-                tp = self.timebase[self.onsets[i-1] ] # check previous event
+                tp = self.timebase[onsets[i-1] ] # check previous event
                 if te-tp < minint:  # if current event too close to a previous event, skip
                     continue
                 self.fitted_events.append(i)  # passes test, include in ok events
@@ -256,7 +309,7 @@ class MiniAnalyses():
                 print('fitted: ', self.fitted_events)
                 print('i: ', i)
                 print('allev: ', self.allevents)
-                print('len allev: ', len(self.allevents), self.onsets.shape[0])
+                print('len allev: ', len(self.allevents), onsets.shape[0])
                 raise
             res = self.event_fitter(self.allevents[i,:], time_past_peak=time_past_peak)
             self.fitresult = res.x
@@ -443,58 +496,6 @@ class MiniAnalyses():
          
         if show:
             mpl.show()
-
-    def fit_average_event(self):
-        """
-        Fit the averaged event to a double exponential epsc-like function
-        """
-        if not self.averaged:  # avoid fit if averaging has not been done
-            return
-        #tsel = np.argwhere(self.avgeventtb > self.tpre)[0]  # only fit data in event,  not baseline
-        tsel = 0  # use whole averaged trace
-        self.tsel = tsel
-        self.tau1 = 1
-        self.tau2 = 5
-        self.tau2_range = 10.
-        self.tau1_minimum_factor = 5.
-        time_past_peak = 0.5
-        # peak_pos = np.argmax(self.sign*self.avgevent[self.tsel:])
-        # decay_fit_start = peak_pos + int(time_past_peak/self.dt)
-        # init_vals = [self.sign*10.,  1.0,  4., 0.]
-        # init_vals_exp = [20.,  5.0]
-        # bounds_exp  = [(0., 0.5), (10000., 50.)]
-        
-        res = self.event_fitter(self.avgevent, time_past_peak=time_past_peak)
-#        print('res for average event: ', res.x)
-        self.fitresult = res.x
-        self.Amplitude = self.fitresult[0]
-        self.tau1 = self.fitresult[1]
-        self.tau2 = self.fitresult[2]
-        self.bfdelay = self.fitresult[3]
-        self.DC = 0. # best_vals[3]
-#        print('best delay: ', self.bfdelay, self.bferr)
-        avg_fit = self.doubleexp(res.x, self.avgeventtb[self.tsel:],
-            np.zeros_like(self.avgeventtb[self.tsel:]), risepower=self.risepower, mode=0, fixed_delay=self.bfdelay)
-        fiterr = np.linalg.norm(avg_fit-self.avgevent[self.tsel:])
-        self.avg_best_fit = self.sign*avg_fit
-       # self.decayfitresult = res_decay.x
-        ave = self.sign*self.avgevent
-        ipk = np.argmax(ave)
-        pk = ave[ipk]
-        p10 = 0.1*pk
-        p90 = 0.9*pk
-        p37 = 0.37*pk
-        try:
-            i10 = np.argmin(np.fabs(ave[:ipk]-p10))
-        except:
-            self.fitted = False
-            return
-        i90 = np.argmin(np.fabs(ave[:ipk]-p90))
-        i37 = np.argmin(np.fabs(ave[ipk:]-p37))
-        self.risetenninety = self.dt*(i90-i10)
-        self.decaythirtyseven = self.dt*(i37-ipk)
-        self.Qtotal = self.dt*np.sum(self.avgevent[self.tsel:])
-        self.fitted = True
 
     def plots(self,  events=None,  title=None):
         """
@@ -904,6 +905,6 @@ def aj_tests():
 
 if __name__ == "__main__":
     aj = aj_tests()
-    aj.fit_individual_events()
+    aj.fit_individual_events(aj.onsets)
     aj.plot_individual_events()
     #cb_tests()
