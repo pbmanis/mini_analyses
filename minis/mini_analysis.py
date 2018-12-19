@@ -66,7 +66,7 @@ import matplotlib.path as mplpath
 from matplotlib.path import Path
 
 rc('text', usetex=False)
-rc('font',**{'family':'sans-serif','sans-serif':['Verdana']})
+#rc('font',**{'family':'sans-serif','sans-serif':['Verdana']})
 
 
 
