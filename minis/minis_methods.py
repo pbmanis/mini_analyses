@@ -24,6 +24,7 @@ warnings.filterwarnings("ignore", message="UserWarning findfont: Font family ['s
 import timeit
 from scipy.optimize import curve_fit
 from numba import jit
+import lmfit
 import minis.digital_filters as dfilt
 #import clembek
 import pylibrary.PlotHelpers as PH
@@ -205,7 +206,7 @@ class MiniAnalyses():
             return np.linalg.norm(tm-y)
         else:
             raise ValueError('doubleexp: Mode must be 0 (diff), 1 (linalg.norm) or -1 (just value)')
-        
+
     def decayexp(self, p, x, y, fixed_delay=0., mode=0):
         """
         Calculate an expoential decay (falling phase fit)
@@ -237,8 +238,8 @@ class MiniAnalyses():
         res, rdelay = self.event_fitter(tb, average_event, time_past_peak=time_past_peak)
         self.fitresult = res.x
         self.Amplitude = self.fitresult[0]
-        self.tau1 = self.fitresult[1]
-        self.tau2 = self.fitresult[2]
+        self.fitted_tau1 = self.fitresult[1]
+        self.fitted_tau2 = self.fitresult[2]
         self.bfdelay = rdelay
         self.DC = 0. # best_vals[3]
         self.avg_best_fit = self.doubleexp(self.fitresult, tb[self.tsel:],
@@ -376,25 +377,29 @@ class MiniAnalyses():
         evfit = self.sign*(event-ev_bl)/peak_val  # scale to max of 1
         # fit rising phase fisrt
         maxev = np.max((0., np.max(self.sign*event)))/peak_val
-
-        bounds_rise = [(0., maxev), (0.0001, 0.020), (0, 0.015)]
+        abound = [0, 2*maxev]
+        if maxev < 0:
+            abound.reverse()
+        bounds_rise = [abound, (0.0001, 0.020), (0, 0.015)]
         init_vals_rise = [maxev, 0.001, 0.]
         res_rise = scipy.optimize.minimize(self.risefit, 
-                    init_vals_rise, bounds=bounds_rise,
-                    method='Nelder-Mead',  # x_scale=[1e-12, 1e-3, 1e-3],
-                    args=(timebase[:peak_pos], # x
-                          evfit[:peak_pos], # 'y
-                          self.risepower, 1)  # risepower, mode
-                    )
+                        init_vals_rise, bounds=bounds_rise,
+                        method=  'SLSQP',  # x_scale=[1e-12, 1e-3, 1e-3],
+                        args=(timebase[:peak_pos], # x
+                              evfit[:peak_pos], # 'y
+                              self.risepower, 1)  # risepower, mode
+                        )
         self.res_rise = res_rise
         # fit decay exponential next:
-        bounds_decay  = [(0., maxev), (self.tau2/10., self.tau2*20.)] # be sure init values are inside bounds
+        bounds_decay  = [abound, (self.tau2/10., self.tau2*20.)] # be sure init values are inside bounds
         init_vals_decay = [res_rise.x[0],  self.tau2]
         # print('peak, tpast, tdel',  peak_pos , int(time_past_peak/self.dt) , int(res_rise.x[2]/self.dt))
         decay_fit_start = peak_pos + int(time_past_peak/self.dt) + int(res_rise.x[2]/self.dt)
         # print('decay start: ', decay_fit_start, decay_fit_start*self.dt, len(event[decay_fit_start:]))
         res_decay = scipy.optimize.minimize(self.decayexp, init_vals_decay,
-                        bounds=bounds_decay, method='Nelder-Mead',
+                         bounds=bounds_decay, 
+                         method=  'SLSQP', 
+                      #  bounds=bounds_decay, method='L-BFGS-B', 
                         args=(timebase[decay_fit_start:], 
                         evfit[decay_fit_start:], res_rise.x[2], 1))
         # print('decay: ', res_decay.x)
@@ -402,14 +407,19 @@ class MiniAnalyses():
         
         # now tune by fitting the whole trace, allowing some (but not too much) flexibility
         self.decayfitresult = res_decay.x
-        bounds_full  = [(0,                10*res_rise.x[0]), # overall amplitude
-                        (0.0*res_rise.x[1],  10*res_rise.x[1]),  # rise tau
-                        (0.0*res_decay.x[1], 10*res_decay.x[1]),  # decay tau
-                        (-5*res_rise.x[2], 10.*res_rise.x[2]),  # delay
+        abound = [0, 10*res_rise.x[0]]
+        if res_rise.x[0] < 0:
+            abound.reverse()
+        
+        bounds_full  = [abound, # overall amplitude
+                        (0.3*res_rise.x[1],  10*res_rise.x[1]),  # rise tau
+                        (0.3*res_decay.x[1], 10*res_decay.x[1]),  # decay tau
+                        (-5.0*res_rise.x[2], 10.*res_rise.x[2]),  # delay
                         #(0, 1), # amplitude of decay component
                     ]
         init_vals = [res_decay.x[0],  res_rise.x[1], res_decay.x[1], res_rise.x[2]]  # be sure init values are inside bounds
-        res = scipy.optimize.minimize(self.doubleexp, init_vals, method='Nelder-Mead',
+        res = scipy.optimize.minimize(self.doubleexp, init_vals, 
+                         method=  'SLSQP', 
                         args=(timebase, evfit,
                         self.risepower, res_rise.x[2], 1),
                         bounds=bounds_full, options={'maxiter': 100000},
