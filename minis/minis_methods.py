@@ -129,7 +129,8 @@ class MiniAnalyses():
                 self.onsets = self.onsets[acceptlist] # trim to only the accepted values
                 
             self.avgevent, self.avgeventtb, self.allevents = self.average_events(self.onsets) 
-            self.fit_average_event(self.avgeventtb, self.avgevent)
+            if len(self.avgevent) > 0:
+                self.fit_average_event(self.avgeventtb, self.avgevent)
             
         else:
             if verbose:
@@ -371,7 +372,7 @@ class MiniAnalyses():
             dt = np.mean(np.diff(timebase))
             self.dt = dt
 
-        peak_pos = np.argmax(self.sign*event)
+        peak_pos = np.argmax(self.sign*np.array(event))
         peak_val = event[peak_pos]
         ev_bl = np.mean(event[0:5])
         evfit = self.sign*(event-ev_bl)/peak_val  # scale to max of 1
