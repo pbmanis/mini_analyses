@@ -20,7 +20,7 @@ import seaborn as sns
 import scipy.stats
 
 rc('text', usetex=False)
-rc('font',**{'family':'sans-serif','sans-serif':['Helvetica']})
+#rc('font',**{'family':'sans-serif','sans-serif':['Helvetica']})
 
 import pylibrary.PlotHelpers as PH
 
