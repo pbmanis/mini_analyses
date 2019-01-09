@@ -16,7 +16,20 @@ per acq4 standards...
 """
 import numpy as np
 import scipy.signal
+import matplotlib
+
+rcParams = matplotlib.rcParams
+rcParams['svg.fonttype'] = 'none' # No text as paths. Assume font installed.
+rcParams['pdf.fonttype'] = 42
+rcParams['ps.fonttype'] = 42
+#rcParams['text.latex.unicode'] = True
+#rcParams['font.family'] = 'sans-serif'
+# rcParams['font.sans-serif'] = 'DejaVu Sans'
+# rcParams['font.weight'] = 'regular'                  # you can omit this, it's the default
+# rcParams['font.sans-serif'] = ['Arial']
+rcParams['text.usetex'] = False
 import matplotlib.pyplot as mpl
+import matplotlib.collections as collections
 import warnings  # need to turn off a scipy future warning.
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -42,6 +55,7 @@ class MiniAnalyses():
         """
         self.risepower = 4.
         self.min_event_amplitude = 5.0e-12 # pA default
+        self.template = None
         pass
 
     def set_sign(self, sign):
@@ -76,7 +90,7 @@ class MiniAnalyses():
         compute intervals,  peaks and ampitudes for all found events
         """
         self.intervals = np.diff(self.timebase[self.onsets])  # event intervals
-        i_decay_pts = int(self.taus[1]/self.dt)  # decay window time (points)
+        i_decay_pts = int(2*self.taus[1]/self.dt)  # decay window time (points)
         self.peaks = []
         self.smpkindex = []
         self.smoothed_peaks = []
@@ -85,9 +99,14 @@ class MiniAnalyses():
         self.averaged = False  # set flags in case of no events found
         self.individual_events = False
         self.fitted = False
+        self.fitted_tau1 = np.nan
+        self.fitted_tau2 = np.nan
+        self.Amplitude = np.nan
         ndata = len(data)
         avgwin = 5 # int(1.0/self.dt)  # 5 point moving average window for peak detection
-        mwin = int(2*(0.004)/self.dt)
+#        print('dt: ', self.dt)
+        mwin = int((0.050)/self.dt)
+#        print('mwin: ', mwin)
         #order = int(0.0004/self.dt)
    #     print('onsets: ', self.onsets)
         if self.sign > 0:
@@ -129,7 +148,6 @@ class MiniAnalyses():
                 self.onsets = self.onsets[acceptlist] # trim to only the accepted values
            # print(self.onsets)
             self.avgevent, self.avgeventtb, self.allevents = self.average_events(self.onsets) 
-          #  print(self.avgevent)
             if self.averaged:
                 self.fit_average_event(self.avgeventtb, self.avgevent)
             
@@ -231,6 +249,9 @@ class MiniAnalyses():
         self.tau2_range = 10.
         self.tau1_minimum_factor = 5.
         time_past_peak = 2.5e-4
+        self.fitted_tau1 = np.nan
+        self.fitted_tau2 = np.nan
+        self.Amplitude = np.nan
         # peak_pos = np.argmax(self.sign*self.avgevent[self.tsel:])
         # decay_fit_start = peak_pos + int(time_past_peak/self.dt)
         # init_vals = [self.sign*10.,  1.0,  4., 0.]
@@ -572,9 +593,10 @@ class MiniAnalyses():
             ax[2].plot(self.avgeventtb[:len(self.avgevent)],  scf*self.avgevent, 'k', label='Average Event')
             maxa = np.max(self.sign*self.avgevent)
             #tpkmax = np.argmax(self.sign*self.template)
-            temp_tb = np.arange(0, len(self.template)*self.dt, self.dt)
+            maxl = int(np.min([len(self.template), len(self.avgeventtb)]))
+            temp_tb = np.arange(0, maxl*self.dt, self.dt)
             #print(len(self.avgeventtb[:len(self.template)]), len(self.template))
-            ax[2].plot(self.avgeventtb[:len(self.avgevent)],  scf*self.sign*self.template[:len(self.avgevent)]*maxa/self.template_amax,  
+            ax[2].plot(self.avgeventtb[:maxl],  scf*self.sign*self.template[:maxl]*maxa/self.template_amax,  
                 'r-', label='Template')
             # compute double exp based on rise and decay alone
             # print('res rise: ', self.res_rise)
@@ -645,8 +667,9 @@ class ClementsBekkers(MiniAnalyses):
         self.data = None
         self.template = None
         self.engine = 'numba'
+        self.method = 'cb'
 
-    def setup(self, tau1=None,  tau2=None,  template_tmax=None,  dt=None,  
+    def setup(self, tau1=None,  tau2=None,  template_tmax=0.05,  dt=None,  
             delay=0.0,  sign=1, eventstartthr=None, risepower=4.0, min_event_amplitude=2.0):
         """
         Just store the parameters - will compute when needed
@@ -688,9 +711,7 @@ class ClementsBekkers(MiniAnalyses):
         cython requires compilation outised
         Numba does a JIT compilation (see routine above)
         """
-        if engine == 'numba':
-            self.engine = engine
-        elif engine == 'cython':
+        if engine in ['numba','cython']:
             self.engine = engine
         else:
             raise ValueError('CB detection engine must be either numba or cython')
@@ -698,7 +719,8 @@ class ClementsBekkers(MiniAnalyses):
     def clements_bekkers_numba(self, data):
         self.timebase = np.arange(0.,  self.data.shape[0]*self.dt,  self.dt)
         D = data.view(np.ndarray)
-        DC, self.Scale, self.Crit = nb_clementsbekkers(D,  self.template)
+        DC, Scale, Crit = nb_clementsbekkers(D,  self.template)
+        return DC, Scale, Crit
         
     # def clements_bekkers_cython(self,  data):
     #     pass
@@ -740,17 +762,14 @@ class ClementsBekkers(MiniAnalyses):
         ## Strip out meta-data for faster computation
         D = self.sign*data.view(np.ndarray)
         T = self.template.view(np.ndarray)
-        self.timebase = np.arange(0.,  self.data.shape[0]*self.dt,  self.dt)
+        self.timebase = np.arange(0.,  data.shape[0]*self.dt,  self.dt)
         if self.engine == 'numba':
-            DC,  S,  crit = nb_clementsbekkers(D,  T)
-            self.DC = DC
-            self.Scale = S
-            self.Crit = crit
-        if self.engine == 'cython':
+            self.DC,  self.Scale,  self.Crit = nb_clementsbekkers(D,  T)
+        elif self.engine == 'cython':
             self.clements_bekkers_cython(D)
+        else:
+            raise ValueError('clements_bekkers: computation engine unknown (%s); must be "numba" or "cython"' % self.engine)
         endtime = timeit.default_timer() - starttime
-        print('CB {0:s} runtime: {1:.4f} s'.format(self.engine, endtime))
-
         self.Crit = self.sign*self.Crit  # assure that crit is positive
     
     def cbTemplateMatch(self,  data, threshold=3.0, llambda=5.0,  order=7):
@@ -758,15 +777,13 @@ class ClementsBekkers(MiniAnalyses):
         self.threshold = threshold
 
         self.clements_bekkers(self.data)  # flip data sign if necessary
-        self.Crit = self.Crit
         sd = np.std(self.Crit)
+        
         self.sdthr = sd * self.threshold  # set the threshold
         self.above = np.clip(self.Crit,  self.sdthr,  None)
         self.onsets = scipy.signal.argrelextrema(self.above,  np.greater,  order=int(order))[0] - 1 + self.idelay
+        
         self.summarize(self.data)
-        mask = self.Crit > threshold
-        diff = mask[1:] ^ mask[:-1]
-        times = np.argwhere(diff==1)[:,  0]  ## every time we start OR stop an event
 
 
 class AndradeJonas(MiniAnalyses):
@@ -787,6 +804,7 @@ class AndradeJonas(MiniAnalyses):
         self.taus = None
         self.template_max = None
         self.idelay = 0
+        self.method = 'aj'
 
     def setup(self,  tau1=None,  tau2=None,  template_tmax=None,  dt=None,  
             delay=0.0,  sign=1, eventstartthr=None, risepower=4., min_event_amplitude=2.0):
@@ -825,10 +843,10 @@ class AndradeJonas(MiniAnalyses):
             self.template = -self.template
             self.template_amax = np.min(self.template)
 
-    def deconvolve(self,  data,  data_nostim=None, thresh=1.0,  llambda=5.0,  order=7, verbose=False):
+    def deconvolve(self,  data,  data_nostim=None, thresh=1.0,  llambda=5.0,  order=7, lpf=6000., verbose=False):
         if self.template is None:
             self._make_template()
-        self.data = dfilt.SignalFilter_LPFButter(data,  3000.,  1./self.dt,  NPole=8)
+        self.data = dfilt.SignalFilter_LPFButter(data,  lpf,  1./self.dt,  NPole=8)
         self.timebase = np.arange(0.,  self.data.shape[0]*self.dt,  self.dt)
     #    print (np.max(self.timebase), self.dt)
         
@@ -921,16 +939,16 @@ def cb_tests():
     """
     sign = -1
     trace_dur = 10.
-    dt = 1e-4
+    dt = 5e-5
     taus = [0.001, 0.005]
-    for i in range(10):
+    for i in range(1):
         timebase,  testpsc,  testpscn,  i_events = generate_testdata(dt, maxt=trace_dur,
-            amp=20.,  ampvar=10.,  noise=5.0, taus=taus, func=None, sign=sign,
+            amp=100e-12,  ampvar=0.,  noise=5.0e-12, taus=taus, func=None, sign=sign,
             expseed=i, noiseseed=i*47)
         cb = ClementsBekkers()
-        cb.setup(tau1=0.005,  tau2=0.0025,  dt=dt,  delay=0.0, template_tmax=3*taus[1],  sign=sign)
+        cb.setup(tau1=0.001,  tau2=0.003,  dt=dt,  delay=0.0, template_tmax=3*taus[1],  sign=sign)
         cb._make_template()
-        cb.cbTemplateMatch(testpscn,  threshold=2.0)
+        cb.cbTemplateMatch(testpscn,  threshold=3.0)
     cb.plots()
     return cb
 
@@ -938,7 +956,7 @@ def cb_tests():
 def aj_tests():
     sign = -1
     trace_dur = 10.  # seconds
-    dt = 1e-4
+    dt = 5e-5
     amp = 100e-12
     for i in range(1):
         aj = AndradeJonas()
