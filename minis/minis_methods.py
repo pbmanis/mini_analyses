@@ -20,7 +20,7 @@ import matplotlib.pyplot as mpl
 import warnings  # need to turn off a scipy future warning.
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
-warnings.filterwarnings("ignore", message="UserWarning findfont: Font family ['sans-serif'] not found. Falling back to DejaVu Sans")
+warnings.filterwarnings("ignore", message="UserWarning: findfont: Font family ['sans-serif'] not found. Falling back to DejaVu Sans")
 import timeit
 from scipy.optimize import curve_fit
 from numba import jit
@@ -127,9 +127,11 @@ class MiniAnalyses():
                 if verbose:
                     print('Trimmed %d events' % (len(self.onsets)-len(acceptlist)))
                 self.onsets = self.onsets[acceptlist] # trim to only the accepted values
-                
+           # print(self.onsets)
             self.avgevent, self.avgeventtb, self.allevents = self.average_events(self.onsets) 
-            self.fit_average_event(self.avgeventtb, self.avgevent)
+          #  print(self.avgevent)
+            if self.averaged:
+                self.fit_average_event(self.avgeventtb, self.avgevent)
             
         else:
             if verbose:
@@ -372,6 +374,8 @@ class MiniAnalyses():
             self.dt = dt
 
         peak_pos = np.argmax(self.sign*event)
+        if peak_pos == 0:
+            peak_pos = int(0.001/self.dt) # move to 1 msec later
         peak_val = event[peak_pos]
         ev_bl = np.mean(event[0:5])
         evfit = self.sign*(event-ev_bl)/peak_val  # scale to max of 1
