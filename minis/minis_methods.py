@@ -462,7 +462,7 @@ class MiniAnalyses():
         #     mpl.show()
         
         # now tune by fitting the whole trace, allowing some (but not too much) flexibility
-        bounds_full  = [ [a*3. for a in amp_bounds], # overall amplitude
+        bounds_full  = [ [a*5. for a in amp_bounds], # overall amplitude
                         (0.2*res_rise.x[1],  5.*res_rise.x[1]),  # rise tau
                         (0.1*res_decay.x[1], 5.*res_decay.x[1]),  # decay tau
                         (0.3*res_rise.x[2], 3.*res_rise.x[2]),  # delay
