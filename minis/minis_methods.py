@@ -438,7 +438,7 @@ class MiniAnalyses():
         
         res_decay = scipy.optimize.minimize(self.decayexp, init_vals_decay,
                          bounds=bounds_decay, 
-                         method=  'SLSQP', 
+                         method=  'L-BFGS-B', 
                       #  bounds=bounds_decay, method='L-BFGS-B', 
                         args=(timebase[decay_fit_start:]-decay_fit_start*dt, 
                         evfit[decay_fit_start:], res_rise.x[2], 1)) # res_rise.x[2], 1))
@@ -462,15 +462,15 @@ class MiniAnalyses():
         #     mpl.show()
         
         # now tune by fitting the whole trace, allowing some (but not too much) flexibility
-        bounds_full  = [ [a*5. for a in amp_bounds], # overall amplitude
+        bounds_full  = [ [a*10. for a in amp_bounds], # overall amplitude
                         (0.2*res_rise.x[1],  5.*res_rise.x[1]),  # rise tau
-                        (0.1*res_decay.x[1], 5.*res_decay.x[1]),  # decay tau
+                        (0.2*res_decay.x[1], 5.*res_decay.x[1]),  # decay tau
                         (0.3*res_rise.x[2], 3.*res_rise.x[2]),  # delay
                         #(0, 1), # amplitude of decay component
                     ]
         init_vals = [amp_bounds[1],  res_rise.x[1], res_decay.x[1], res_rise.x[2]]  # be sure init values are inside bounds
         res = scipy.optimize.minimize(self.doubleexp, init_vals, 
-                         method=  'SLSQP', 
+                         method=  'L-BFGS-B', 
                         args=(timebase, evfit,
                         self.risepower, res_rise.x[2], 1),
                         bounds=bounds_full, options={'maxiter': 100000},
