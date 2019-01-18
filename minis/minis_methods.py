@@ -429,7 +429,7 @@ class MiniAnalyses():
 
         self.res_rise = res_rise
         # fit decay exponential next:
-        bounds_decay  = [amp_bounds, (dt, self.tau2*10.)] # be sure init values are inside bounds
+        bounds_decay  = [amp_bounds, (dt, self.tau2*20.)] # be sure init values are inside bounds
         init_vals_decay = [1,  self.tau2]
         # print('peak, tpast, tdel',  peak_pos , int(time_past_peak/self.dt) , int(res_rise.x[2]/self.dt))
         decay_fit_start = peak_pos + int(time_past_peak/self.dt) #+ int(res_rise.x[2]/self.dt)
