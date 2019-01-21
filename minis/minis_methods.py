@@ -85,9 +85,9 @@ class MiniAnalyses():
             self.template = -self.template
             self.template_amax = np.min(self.template)    
 
-    def summarize(self,  data, order=11, verbose=False):
+    def summarize(self, data, order=11, verbose=False):
         """
-        compute intervals,  peaks and ampitudes for all found events
+        compute intervals,  peaks and ampitudes for all found events in a trace
         """
         self.intervals = np.diff(self.timebase[self.onsets])  # event intervals
         i_decay_pts = int(2*self.taus[1]/self.dt)  # decay window time (points)
@@ -232,7 +232,7 @@ class MiniAnalyses():
         else:
             return np.linalg.norm(tm-y)
 
-    def fit_average_event(self, tb, average_event, debug=False):
+    def fit_average_event(self, tb, average_event, debug=False, label=''):
         """
         Fit the averaged event to a double exponential epsc-like function
         """
@@ -253,7 +253,7 @@ class MiniAnalyses():
         # init_vals_exp = [20.,  5.0]
         # bounds_exp  = [(0., 0.5), (10000., 50.)]
         
-        res, rdelay = self.event_fitter(tb, average_event, time_past_peak=time_past_peak, debug=debug)
+        res, rdelay = self.event_fitter(tb, average_event, time_past_peak=time_past_peak, debug=debug, label=label)
         self.fitresult = res.x
         self.Amplitude = self.fitresult[0]
         self.fitted_tau1 = self.fitresult[1]
@@ -368,7 +368,7 @@ class MiniAnalyses():
         self.individual_event_screen(fit_err_limit=2000., tau2_range=10.)
         self.individual_events = True  # we did this step
 
-    def event_fitter(self, timebase, event, time_past_peak=0.0002, debug=False):
+    def event_fitter(self, timebase, event, time_past_peak=0.0002, debug=False, label=''):
         """
         Fit the event
         Procedure:
@@ -398,9 +398,10 @@ class MiniAnalyses():
         evfit = evfit/maxev # scale to max of 1
         peak_pos = np.argmax(evfit)+1
         amp_bounds = [0, 1]
-
+        # set reasonable, but wide bounds, and make sure init values are within bounds
+        # (and off center, but not at extremes)
         bounds_rise = [amp_bounds, (dt, 2*dt*peak_pos), (0, 0.015)]
-        init_vals_rise = [0.9, np.mean(bounds_rise[2]), 0.]
+        init_vals_rise = [0.9, 0.2*np.mean(bounds_rise[1]), 0.2*np.mean(bounds_rise[2])]
         
         res_rise = scipy.optimize.minimize(self.risefit, 
                         init_vals_rise, bounds=bounds_rise,
@@ -430,7 +431,7 @@ class MiniAnalyses():
         self.res_rise = res_rise
         # fit decay exponential next:
         bounds_decay  = [amp_bounds, (dt, self.tau2*20.)] # be sure init values are inside bounds
-        init_vals_decay = [1,  self.tau2]
+        init_vals_decay = [0.9*np.mean(amp_bounds),  self.tau2]
         # print('peak, tpast, tdel',  peak_pos , int(time_past_peak/self.dt) , int(res_rise.x[2]/self.dt))
         decay_fit_start = peak_pos + int(time_past_peak/self.dt) #+ int(res_rise.x[2]/self.dt)
         # print('decay start: ', decay_fit_start, decay_fit_start*self.dt, len(event[decay_fit_start:]))
@@ -464,11 +465,15 @@ class MiniAnalyses():
         # now tune by fitting the whole trace, allowing some (but not too much) flexibility
         bounds_full  = [ [a*10. for a in amp_bounds], # overall amplitude
                         (0.2*res_rise.x[1],  5.*res_rise.x[1]),  # rise tau
-                        (0.2*res_decay.x[1], 5.*res_decay.x[1]),  # decay tau
-                        (0.3*res_rise.x[2], 3.*res_rise.x[2]),  # delay
+                        (0.2*res_decay.x[1], 50.*res_decay.x[1]),  # decay tau
+                        (0.3*res_rise.x[2], 20.*res_rise.x[2]),  # delay
                         #(0, 1), # amplitude of decay component
                     ]
         init_vals = [amp_bounds[1],  res_rise.x[1], res_decay.x[1], res_rise.x[2]]  # be sure init values are inside bounds
+        # if len(label) > 0:
+        #     print('Label: ', label)
+        #     print('bounds full: ', bounds_full)
+        #     print('init_vals: ', init_vals)
         res = scipy.optimize.minimize(self.doubleexp, init_vals, 
                          method=  'L-BFGS-B', 
                         args=(timebase, evfit,
