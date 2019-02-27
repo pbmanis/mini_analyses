@@ -821,7 +821,7 @@ class ClementsBekkers(MiniAnalyses):
         endtime = timeit.default_timer() - starttime
         self.Crit = self.sign*self.Crit  # assure that crit is positive
     
-    def cbTemplateMatch(self,  data, threshold=3.0, llambda=5.0,  order=7):
+    def cbTemplateMatch(self,  data, threshold=3.0, order=7):
         self.data = data
         self.threshold = threshold
 
