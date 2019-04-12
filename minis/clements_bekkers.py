@@ -1,4 +1,8 @@
 """
+Old implementations of the CB and AJ algorithms.
+CB implementation is a slow python implementation
+This code has been superseded by the mini_methods.py module,
+which includes cython and numba jit methods that are faster.
 
 """
 import numpy as np
