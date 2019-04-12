@@ -155,6 +155,48 @@ class MiniAnalyses():
             if verbose:
                 print('No events found')
             return
+    
+    def measure_events(self, eventlist):
+        # compute simple measurements of events (area, amplitude, half-width)
+        #
+        self.measured = False
+        # treat like averaging
+        tdur = np.max((np.max(self.taus)*5.0, 0.010))  # go 5 taus or 10 ms past event
+        tpre = 0. # self.taus[0]*10.
+        self.avgeventdur = tdur
+        self.tpre = tpre
+        self.avgnpts = int((tpre+tdur)/self.dt)  # points for the average
+        npre = int(tpre/self.dt) # points for the pre time
+        npost = int(tdur/self.dt)
+        avg = np.zeros(self.avgnpts)
+        avgeventtb = np.arange(self.avgnpts)*self.dt
+
+        allevents = np.zeros((len(eventlist),  self.avgnpts))
+        k = 0
+        pkt = 0 # np.argmax(self.template)  # accumulate
+        meas = {'Q': [], 'A': [], 'HWup': [], 'HWdown': [], 'HW': []}
+        for j, i in enumerate(eventlist):
+            ix = i + pkt # self.idelay
+            if (ix + npost) < len(self.data) and (ix - npre) >= 0:
+                allevents[k,:] = self.data[ix-npre:ix+npost]
+                k = k + 1
+        if k > 0:
+            allevents = allevents[0:k, :]  # trim unused
+            for j in range(k):
+                ev_j = scipy.signal.savgol_filter(self.sign*allevents[j, :], 7, 2, mode='nearest')  # flip sign if negative
+                q = np.sum(ev_j)*tdur
+                meas['Q'].append(q)
+                ai = np.argmax(ev_j)
+                meas['A'].append(ev_j[ai])
+                hw_up = self.dt*np.argmin(np.fabs((ev_j[ai]/2.0) - ev_j[:ai]))
+                hw_down = self.dt*np.argmin(np.fabs(ev_j[ai:] - (ev_j[ai]/2.0)))
+                meas['HWup'].append(hw_up)
+                meas['HWdown'].append(hw_down)
+                meas['HW'].append(hw_up+hw_down)
+            self.measured = True
+        else:
+            self.measured = False
+        return(meas)
 
     def average_events(self, eventlist):
         # compute average event with length of template
