@@ -16,31 +16,13 @@ per acq4 standards...
 """
 import numpy as np
 import scipy.signal
-import matplotlib
 
-rcParams = matplotlib.rcParams
-rcParams['svg.fonttype'] = 'none' # No text as paths. Assume font installed.
-rcParams['pdf.fonttype'] = 42
-rcParams['ps.fonttype'] = 42
-#rcParams['text.latex.unicode'] = True
-#rcParams['font.family'] = 'sans-serif'
-# rcParams['font.sans-serif'] = 'DejaVu Sans'
-# rcParams['font.weight'] = 'regular'                  # you can omit this, it's the default
-# rcParams['font.sans-serif'] = ['Arial']
-rcParams['text.usetex'] = False
-import matplotlib.pyplot as mpl
-import matplotlib.collections as collections
-import warnings  # need to turn off a scipy future warning.
-warnings.filterwarnings("ignore", category=FutureWarning)
-warnings.filterwarnings("ignore", category=UserWarning)
-warnings.filterwarnings("ignore", message="UserWarning: findfont: Font family ['sans-serif'] not found. Falling back to DejaVu Sans")
 import timeit
 from scipy.optimize import curve_fit
 from numba import jit
 import lmfit
 import minis.digital_filters as dfilt
 #import clembek
-import pylibrary.PlotHelpers as PH
 
 # ANSI terminal colors  - just put in as part of the string to get color terminal output
 colors = {'red': '\x1b[31m', 'yellow': '\x1b[33m', 'green': '\x1b[32m', 'magenta': '\x1b[35m',
@@ -184,9 +166,11 @@ class MiniAnalyses():
             allevents = allevents[0:k, :]  # trim unused
             for j in range(k):
                 ev_j = scipy.signal.savgol_filter(self.sign*allevents[j, :], 7, 2, mode='nearest')  # flip sign if negative
+                ai = np.argmax(ev_j)
+                if ai == 0:
+                    continue  # skip events where max is first point
                 q = np.sum(ev_j)*tdur
                 meas['Q'].append(q)
-                ai = np.argmax(ev_j)
                 meas['A'].append(ev_j[ai])
                 hw_up = self.dt*np.argmin(np.fabs((ev_j[ai]/2.0) - ev_j[:ai]))
                 hw_down = self.dt*np.argmin(np.fabs(ev_j[ai:] - (ev_j[ai]/2.0)))
@@ -256,7 +240,12 @@ class MiniAnalyses():
         """
         ix = np.argmin(np.fabs(x-p[2]))
         tm = np.zeros_like(x)
-        tm[ix:] = p[0] * (1.0 - np.exp(-(x[ix:]-p[2])/p[1]))**risepower
+        ex = (x[ix:]-p[2])/p[1]
+        pclip = 1.e3
+        nclip = 0.
+        ex[ex>pclip]= pclip
+        ex[ex<-nclip] = -nclip
+        tm[ix:] = p[0] * (1.0 - np.exp(-ex))**risepower
         if mode == 0:
             return tm - y
         elif mode == 1:
@@ -435,6 +424,8 @@ class MiniAnalyses():
         ev_bl = np.mean(event[:int(dt/dt)])   # just first point... 
         evfit = self.sign*(event - ev_bl)
         maxev = np.max(evfit)
+        if maxev == 0:
+            maxev = 1
         # if peak_pos == 0:
         #     peak_pos = int(0.001/self.dt) # move to 1 msec later
         evfit = evfit/maxev # scale to max of 1
@@ -971,10 +962,13 @@ def moving_average(a,  n=3) :
 
 
 def generate_testdata(dt,  maxt=10., meanrate=10.,  amp=20.e-12,  ampvar=5.e-12,  
-        noise=2.5e-12, taus=[0.001, 0.010], baseclass=None, func=None, sign=1, expseed=None, noiseseed=None):
+        noise=2.5e-12, taus=[0.001, 0.010], baseclass=None, func=None, sign=1, 
+        expseed=None, noiseseed=None,
+        bigevent=None):
     """
         meanrate is in Hz(events/second)
         maxt is in seconds
+        bigevent is a dict {'t': delayinsec, 'I': amplitudeinA}
     """
     if baseclass is None and func is not None:
         raise ValueError('Need base class definition')
@@ -990,6 +984,7 @@ def generate_testdata(dt,  maxt=10., meanrate=10.,  amp=20.e-12,  ampvar=5.e-12,
         gmax = np.max(g)
         print('gmax: ', gmax)
         g = sign*g*amp/gmax
+        print(f'max g: {np.min(g):.6e}')
     else:
         baseclass._make_template()
         gmax = np.min(baseclass.template)
@@ -1004,11 +999,15 @@ def generate_testdata(dt,  maxt=10., meanrate=10.,  amp=20.e-12,  ampvar=5.e-12,
         eventintervals = np.random.exponential(1./meanrate, int(maxt*meanrate))
     eventintervals = eventintervals[eventintervals < 10.]
     events = np.cumsum(eventintervals)
+    if bigevent is not None:
+        events = np.append(events, bigevent['t'])
+        events = np.sort(events)
     t_events = events[events < maxt]  # time of events with exp distribution
     i_events = np.array([int(x/dt) for x in t_events])
-#    print(i_events)
     testpsc[i_events] = np.random.normal(1.,  ampvar/amp,  len(i_events))
-#    i_events = i_events-int((tdur)/dt)
+    if bigevent is not None:
+        ipos = int(bigevent['t']/dt) # position in array
+        testpsc[ipos] = bigevent['I']
     testpsc = scipy.signal.convolve(testpsc,  g,  mode='full')[:timebase.shape[0]]
     # f, ax = mpl.subplots(1,1)
     # ax.plot(dt*np.arange(len(testpsc)), testpsc)
@@ -1034,8 +1033,8 @@ def cb_tests():
     taus = [0.001, 0.005]
     for i in range(1):
         timebase,  testpsc,  testpscn,  i_events = generate_testdata(dt, maxt=trace_dur,
-            amp=100e-12,  ampvar=0.,  noise=5.0e-12, taus=taus, func=None, sign=sign,
-            expseed=i, noiseseed=i*47)
+            amp=100e-12,  ampvar=20e-12,  meanrate=10., noise=15.0e-12, taus=taus, func=None, sign=sign,
+            expseed=i, noiseseed=i*47, bigevent={'t': 1.0, 'I': 20.})
         cb = ClementsBekkers()
         cb.setup(tau1=0.001,  tau2=0.003,  dt=dt,  delay=0.0, template_tmax=3*taus[1],  sign=sign)
         cb._make_template()
@@ -1056,17 +1055,37 @@ def aj_tests():
         # generate test data
         timebase,  testpsc,  testpscn,  i_events = generate_testdata(aj.dt, maxt=trace_dur,
                 meanrate=10.,
-                amp=amp,  ampvar=0.,  noise=25e-12, taus=[0.001, 0.005], baseclass=aj, func=None, sign=sign,
-                expseed=i, noiseseed=i*47)
+                amp=amp,  ampvar=20e-12,  noise=15e-12, taus=[0.001, 0.005], baseclass=aj, func=None, sign=sign,
+                expseed=i, noiseseed=i*47, bigevent={'t': 1.0, 'I': 20})
 
-        aj.deconvolve(testpscn-np.mean(testpscn),  thresh=4, llambda=1,  order=int(0.001/aj.dt))
+        aj.deconvolve(testpscn-np.mean(testpscn),  thresh=5, llambda=1,  order=int(0.001/aj.dt))
     aj.summarize(aj.data)
     aj.plots(events=None) # i_events)
     return aj
     
 
 if __name__ == "__main__":
+    import matplotlib
+
+    rcParams = matplotlib.rcParams
+    rcParams['svg.fonttype'] = 'none' # No text as paths. Assume font installed.
+    rcParams['pdf.fonttype'] = 42
+    rcParams['ps.fonttype'] = 42
+    #rcParams['text.latex.unicode'] = True
+    #rcParams['font.family'] = 'sans-serif'
+    # rcParams['font.sans-serif'] = 'DejaVu Sans'
+    # rcParams['font.weight'] = 'regular'                  # you can omit this, it's the default
+    # rcParams['font.sans-serif'] = ['Arial']
+    rcParams['text.usetex'] = False
+    import matplotlib.pyplot as mpl
+    import matplotlib.collections as collections
+    import warnings  # need to turn off a scipy future warning.
+    warnings.filterwarnings("ignore", category=FutureWarning)
+    warnings.filterwarnings("ignore", category=UserWarning)
+    warnings.filterwarnings("ignore", message="UserWarning: findfont: Font family ['sans-serif'] not found. Falling back to DejaVu Sans")
+    import pylibrary.PlotHelpers as PH
+
     aj = aj_tests()
     #aj.fit_individual_events(aj.onsets)
     #aj.plot_individual_events()
-    #cb_tests()
+    # cb_tests()
