@@ -712,8 +712,13 @@ def nb_clementsbekkers(data,  template):
     """
     ## Prepare a bunch of arrays we'll need later
     n_template = len(template)
+    # if n_template <= 1:
+    #     raise ValueError("nb_clementsbekkers: Length of template must be useful, and > 1")
     n_data = data.shape[0]
     n_dt = n_data - n_template
+    # if n_dt < 10:
+    #     raise ValueError("nb_clementsbekkers: n_dt, n_template", n_dt, n_template)
+    #
     sum_template = template.sum()
     sum_template_2 = (template*template).sum()
 
@@ -801,7 +806,12 @@ class ClementsBekkers(MiniAnalyses):
     def clements_bekkers_numba(self, data):
         self.timebase = np.arange(0.,  self.data.shape[0]*self.dt,  self.dt)
         D = data.view(np.ndarray)
-        DC, Scale, Crit = nb_clementsbekkers(D,  self.template)
+        if np.std(D) < 5e-12:
+            DC = np.zeros(self.template.shape[0])
+            Scale = np.zeros(self.template.shape[0])
+            Crit = np.zeros(self.template.shape[0])
+        else:
+            DC, Scale, Crit = nb_clementsbekkers(D,  self.template)
         return DC, Scale, Crit
         
     # def clements_bekkers_cython(self,  data):
@@ -859,7 +869,7 @@ class ClementsBekkers(MiniAnalyses):
         self.threshold = threshold
 
         self.clements_bekkers(self.data)  # flip data sign if necessary
-        sd = np.std(self.Crit)
+        sd = np.std(self.Crit)  # HERE IS HWERE TO SCREEN OUT STIMULI/EVOKED 
         
         self.sdthr = sd * self.threshold  # set the threshold
         self.above = np.clip(self.Crit,  self.sdthr,  None)
