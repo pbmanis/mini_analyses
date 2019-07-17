@@ -22,7 +22,10 @@ from scipy.optimize import curve_fit
 from numba import jit
 import lmfit
 import minis.digital_filters as dfilt
-#import clembek
+import minis.functions as FN # Luke's misc. function library
+import pyximport
+pyximport.install()
+from minis import clembek
 
 # ANSI terminal colors  - just put in as part of the string to get color terminal output
 colors = {'red': '\x1b[31m', 'yellow': '\x1b[33m', 'green': '\x1b[32m', 'magenta': '\x1b[35m',
@@ -105,7 +108,18 @@ class MiniAnalyses():
                 if self.sign < 0 and self.eventstartthr is not None:
                     if self.data[self.onsets[j]] > -self.eventstartthr:
                         continue
-                p =  scipy.signal.argrelextrema(data[self.onsets[j]:(self.onsets[j]+mwin)], nparg, order=order)[0]
+                svwinlen = data[self.onsets[j]:(self.onsets[j]+mwin)].shape[0]
+                if svwinlen > 11:
+                    svn = 11
+                else:
+                    svn = svwinlen
+                if svn % 2 == 0:  # if even, decrease by 1 point to meet ood requirement for savgol_filter
+                    svn -=1
+                    
+                if svn > 3:  # go ahead and filter
+                    p =  scipy.signal.argrelextrema(scipy.signal.savgol_filter(data[self.onsets[j]:(self.onsets[j]+mwin)], svn, 2), nparg, order=order)[0]
+                else: # skip filtering
+                    p =  scipy.signal.argrelextrema(data[self.onsets[j]:(self.onsets[j]+mwin)], nparg, order=order)[0]
                 if len(p) > 0:
                     self.peaks.extend([int(p[0]+self.onsets[j])])
                     amp = self.sign*(self.data[self.peaks[-1]] - data[self.onsets[j]])
@@ -635,7 +649,7 @@ class MiniAnalyses():
         Plot the results from the analysis and the fitting
         """
         data = self.data
-        P = PH.regular_grid(3 , 1, order='columns', figsize=(8., 6), showgrid=False,
+        P = PH.regular_grid(3 , 1, order='columnsfirst', figsize=(8., 6), showgrid=False,
                         verticalspacing=0.08, horizontalspacing=0.08,
                         margins={'leftmargin': 0.07, 'rightmargin': 0.20, 'topmargin': 0.03, 'bottommargin': 0.1},
                         labelposition=(-0.12, 0.95))
@@ -675,11 +689,12 @@ class MiniAnalyses():
             ax[2].plot(self.avgeventtb[:len(self.avgevent)],  scf*self.avgevent, 'k', label='Average Event')
             maxa = np.max(self.sign*self.avgevent)
             #tpkmax = np.argmax(self.sign*self.template)
-            maxl = int(np.min([len(self.template), len(self.avgeventtb)]))
-            temp_tb = np.arange(0, maxl*self.dt, self.dt)
-            #print(len(self.avgeventtb[:len(self.template)]), len(self.template))
-            ax[2].plot(self.avgeventtb[:maxl],  scf*self.sign*self.template[:maxl]*maxa/self.template_amax,  
-                'r-', label='Template')
+            if self.template is not None:
+                maxl = int(np.min([len(self.template), len(self.avgeventtb)]))
+                temp_tb = np.arange(0, maxl*self.dt, self.dt)
+                #print(len(self.avgeventtb[:len(self.template)]), len(self.template))
+                ax[2].plot(self.avgeventtb[:maxl],  scf*self.sign*self.template[:maxl]*maxa/self.template_amax,  
+                    'r-', label='Template')
             # compute double exp based on rise and decay alone
             # print('res rise: ', self.res_rise)
             # p = [self.res_rise.x[0], self.res_rise.x[1], self.res_decay.x[1], self.res_rise.x[2]]
@@ -741,7 +756,7 @@ def nb_clementsbekkers(data,  template):
         fitted_template = template * scale[i] + offset[i]
         sse = ((data[i:i+n_template] - fitted_template)**2).sum()
         crit[i] = scale[i]/np.sqrt(sse/(n_template-1))
-    DC = scale/ crit
+    DC = scale/crit
     return(DC,  scale,  crit)
 
 
@@ -814,26 +829,26 @@ class ClementsBekkers(MiniAnalyses):
             DC, Scale, Crit = nb_clementsbekkers(D,  self.template)
         return DC, Scale, Crit
         
-    # def clements_bekkers_cython(self,  data):
-    #     pass
-    #     ### broken for py3 at the moment
-    #     if self.template is None:
-    #         self._make_template()
-    #     self.timebase = np.arange(0.,  self.data.shape[0]*self.dt,  self.dt)
-    #     D = data.view(np.ndarray)
-    #     T = self.template.view(np.ndarray)
-    #     crit = np.zeros_like(D)
-    #     scale = np.zeros_like(D)
-    #     offset = np.zeros_like(D)
-    #     pkl = np.zeros(10000)
-    #     evl = np.zeros(10000)
-    #     nout = 0
-    #     nt = T.shape[0]
-    #     nd = D.shape[0]
-    #     clembek.clembek(D,  T,  self.threshold,  crit,  scale,  offset,  pkl,  evl,  nout,  self.sign,  nt,  nd)
-    #     self.Scale = scale
-    #     self.Crit = crit
-    #     self.DC = offset
+    def clements_bekkers_cython(self,  data):
+        # pass
+        ### broken for py3 at the moment
+        if self.template is None:
+            self._make_template()
+        self.timebase = np.arange(0.,  self.data.shape[0]*self.dt,  self.dt)
+        D = data.view(np.ndarray)
+        T = self.template.view(np.ndarray)
+        crit = np.zeros_like(D)
+        scale = np.zeros_like(D)
+        offset = np.zeros_like(D)
+        pkl = np.zeros(100000)
+        evl = np.zeros(100000)
+        nout = 0
+        nt = T.shape[0]
+        nd = D.shape[0]
+        clembek.clembek(D,  T,  self.threshold,  crit,  scale,  offset,  pkl,  evl,  nout,  self.sign,  nt,  nd)
+        self.Scale = scale
+        self.Crit = crit
+        self.DC = offset
 
     def clements_bekkers(self,  data):
         """
@@ -869,12 +884,27 @@ class ClementsBekkers(MiniAnalyses):
         self.threshold = threshold
 
         self.clements_bekkers(self.data)  # flip data sign if necessary
-        sd = np.std(self.Crit)  # HERE IS HWERE TO SCREEN OUT STIMULI/EVOKED 
-        
+        # svwinlen = self.Crit.shape[0]  # smooth the crit a bit so not so dependent on noise
+        # if svwinlen > 11:
+        #     svn = 11
+        # else:
+        #     svn = svwinlen
+        # if svn % 2 == 0:  # if even, decrease by 1 point to meet ood requirement for savgol_filter
+        #     svn -=1
+        #
+        # if svn > 3:  # go ahead and filter
+        #     self.Crit =  scipy.signal.savgol_filter(self.Crit, svn, 2)
+        sd = np.std(self.Crit)  # HERE IS WHERE TO SCREEN OUT STIMULI/EVOKED 
         self.sdthr = sd * self.threshold  # set the threshold
         self.above = np.clip(self.Crit,  self.sdthr,  None)
         self.onsets = scipy.signal.argrelextrema(self.above,  np.greater,  order=int(order))[0] - 1 + self.idelay
-        
+        # import matplotlib.pyplot as mpl
+        # f, ax = mpl.subplots(3,1)
+        # ax[0].plot(self.data)
+        # ax[1].plot(self.Crit)
+        # ax[2].plot(self.above)
+        # mpl.show()
+        # exit()
         self.summarize(self.data)
 
 
@@ -962,6 +992,64 @@ class AndradeJonas(MiniAnalyses):
         if verbose:
             print('AJ run time: {0:.4f} s'.format(endtime))
 
+class ZCFinder(MiniAnalyses):
+    """
+    Event finder using Luke's zero-crossing algorithm
+    
+    """
+    def __init__(self):
+        self.template = None
+        self.onsets = None
+        self.timebase = None
+        self.dt = None
+        self.sign = 1
+        self.taus = None
+        self.template_max = None
+        self.idelay = 0
+        self.method = 'aj'
+
+    def setup(self,  tau1=None,  tau2=None,  template_tmax=None,  dt=None,  
+            delay=0.0,  sign=1, eventstartthr=None, risepower=4., min_event_amplitude=2.0):
+        """
+        Just store the parameters - will compute when needed
+        """
+        assert sign in [-1, 1]  # must be selective, positive or negative events only
+        self.sign = sign
+        self.taus = [tau1,  tau2]
+        self.dt = dt
+        self.template_tmax = template_tmax
+        self.idelay = int(delay/dt)  # points delay in template with zeros
+        self.template = None  # reset the template if needed.
+        self.eventstartthr = eventstartthr
+        self.risepower = risepower
+        self.min_event_amplitude = min_event_amplitude
+        
+ 
+    def _make_template(self):
+        """
+        Private function: make template when it is needed
+        """
+        pass  # no template used...
+        
+    def find_events(self, data, data_nostim=None, minPeak=0., thresh=0., minSum=0., minLength=3, verbose=False):
+        self.data = data # filtering should be done before this ... # dfilt.SignalFilter_LPFButter(data,  lpf,  1./self.dt,  NPole=8)
+        self.timebase = np.arange(0.,  self.data.shape[0]*self.dt,  self.dt)
+
+        starttime = timeit.default_timer()
+        self.sdthr = thresh
+        self.Crit = np.zeros_like(self.data)
+        # if data_nostim is None:
+        #     data_nostim = [range(self.Crit.shape[0])]  # whole trace, otherwise remove stimuli
+        # else:  # clip to max of crit array, and be sure index array is integer, not float
+        #     data_nostim = [int(x) for x in data_nostim if x < self.Crit.shape[0]]
+        events = FN.zeroCrossingEvents(data, minLength=minLength, minPeak=minPeak, minSum=minSum, noiseThreshold=thresh, sign=self.sign)
+        self.onsets = np.array([x[0] for x in events]).astype(int)
+
+        self.summarize(data)
+        endtime = timeit.default_timer() - starttime
+        if verbose:
+            print('ZC run time: {0:.4f} s'.format(endtime))
+
 
 #  Some general functions
 
@@ -1032,6 +1120,30 @@ def generate_testdata(dt,  maxt=10., meanrate=10.,  amp=20.e-12,  ampvar=5.e-12,
         testpscn = testpsc
     return timebase,  testpsc,  testpscn,  i_events
 
+def zc_test():
+    """
+    Do some tests of the CB protocol and plot
+    """
+    sign = -1
+    trace_dur = 10.
+    dt = 5e-5
+    taus = [0.001, 0.005]
+    minlen = int(0.003/dt)
+    for i in range(1):
+        timebase,  testpsc,  testpscn,  i_events = generate_testdata(dt, maxt=trace_dur,
+            amp=100e-12,  ampvar=20e-12,  meanrate=10., noise=15.0e-12, taus=taus, func=None, sign=sign,
+            expseed=i, noiseseed=i*47, bigevent={'t': 1.0, 'I': 20.})
+        zc = ZCFinder()
+        zc.setup(dt=dt, tau1=0.001, tau2=0.005, sign=-1)
+        events = zc.find_events(testpscn,  data_nostim=None, thresh=1.5,  minLength=minlen)
+    # print(len(events))
+    zc.plots(title = 'Zero Crossings')
+    # f, ax = mpl.subplots(3, 1)
+    # ax[0].plot(timebase, testpscn)
+    # evindex = [x[0] for x in events]
+    # ax[0].plot(timebase[evindex], testpscn[evindex], 'ro', markersize=2)
+    # mpl.show()
+
 
 def cb_tests():
     """
@@ -1049,7 +1161,7 @@ def cb_tests():
         cb.setup(tau1=0.001,  tau2=0.003,  dt=dt,  delay=0.0, template_tmax=3*taus[1],  sign=sign)
         cb._make_template()
         cb.cbTemplateMatch(testpscn,  threshold=3.0)
-    cb.plots()
+    cb.plots(title='Clements Bekkers')
     return cb
 
 
@@ -1070,7 +1182,7 @@ def aj_tests():
 
         aj.deconvolve(testpscn-np.mean(testpscn),  thresh=5, llambda=1,  order=int(0.001/aj.dt))
     aj.summarize(aj.data)
-    aj.plots(events=None) # i_events)
+    aj.plots(events=None, title='AJ') # i_events)
     return aj
     
 
@@ -1099,3 +1211,4 @@ if __name__ == "__main__":
     #aj.fit_individual_events(aj.onsets)
     #aj.plot_individual_events()
     # cb_tests()
+    # zc_test()

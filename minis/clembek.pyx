@@ -10,6 +10,7 @@
 
 cimport cython
 import numpy as np
+from libc.stdio cimport printf
 
 def clembek(
            double[:] p_data,  # data array (input)
@@ -60,14 +61,17 @@ def clembek(
             s = (sumey - sume * sumy/nt)/(sume2 - sume * sume/nt)
         c = (sumy - s*sume)/nt
         # we dont calculate f as it is not used...
-        sse = sumy2 + (s*s*sume2)+(nt*c*c)-2*(s*sumey + c*sumy - (s*c*sume))
+        sse = sumy2 + (s*s*sume2)+(nt*c*c)-2.0*(s*sumey + c*sumy - (s*c*sume))
+        if(sse < 0.0):
+            sse = 1e-99
+#        printf( "%e ", sse)
         criteria = s/np.sqrt(sse/float(nt-1))
         p_crit[i] = criteria
         p_scale[i] = s
         p_cx[i] = c
-        if(sign <= 1 and criteria <= -thr):
+        if(sign <= 0 and criteria <= -thr):
             pkcount += 1
-            p_evl[pkcount -1] = i
+            p_evl[pkcount - 1] = i
             md = 0.0
             ipk = i
             for j in range(i,   nt+i):
@@ -75,7 +79,7 @@ def clembek(
                     md = p_data[j]
                     ipk = j
             p_pkl[pkcount - 1] = ipk+1
-            if(sign >= 2 and criteria >= thr):
+            if(sign >= 1 and criteria >= thr):
                 pkcount += 1
             p_evl[pkcount-1] = i
             md = 0.0
