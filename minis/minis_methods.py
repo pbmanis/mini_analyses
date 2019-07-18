@@ -277,15 +277,15 @@ class MiniAnalyses():
         else:
             return np.linalg.norm(tm-y)
 
-    def fit_average_event(self, tb, average_event, debug=False, label=''):
+    def fit_average_event(self, tb, average_event, debug=False, label='', inittaus=[0.001, 0.005], initdelay=None):
         """
         Fit the averaged event to a double exponential epsc-like function
         """
         #tsel = np.argwhere(self.avgeventtb > self.tpre)[0]  # only fit data in event,  not baseline
         tsel = 0  # use whole averaged trace
         self.tsel = tsel
-        self.tau1 = 0.001
-        self.tau2 = 0.005
+        self.tau1 = inittaus[0]
+        self.tau2 = inittaus[1]
         self.tau2_range = 10.
         self.tau1_minimum_factor = 5.
         time_past_peak = 2.5e-4
@@ -298,7 +298,7 @@ class MiniAnalyses():
         # init_vals_exp = [20.,  5.0]
         # bounds_exp  = [(0., 0.5), (10000., 50.)]
         
-        res, rdelay = self.event_fitter(tb, average_event, time_past_peak=time_past_peak, debug=debug, label=label)
+        res, rdelay = self.event_fitter(tb, average_event, time_past_peak=time_past_peak, initdelay=initdelay,  debug=debug, label=label)
         self.fitresult = res.x
         self.Amplitude = self.fitresult[0]
         self.fitted_tau1 = self.fitresult[1]
@@ -413,7 +413,7 @@ class MiniAnalyses():
         self.individual_event_screen(fit_err_limit=2000., tau2_range=10.)
         self.individual_events = True  # we did this step
 
-    def event_fitter(self, timebase, event, time_past_peak=0.0002, debug=False, label=''):
+    def event_fitter(self, timebase, event, time_past_peak=0.0002, initdelay=None, debug=False, label=''):
         """
         Fit the event
         Procedure:
@@ -447,8 +447,13 @@ class MiniAnalyses():
         amp_bounds = [0, 1]
         # set reasonable, but wide bounds, and make sure init values are within bounds
         # (and off center, but not at extremes)
-        bounds_rise = [amp_bounds, (dt, 2*dt*peak_pos), (0, 0.015)]
-        init_vals_rise = [0.9, 0.2*np.mean(bounds_rise[1]), 0.2*np.mean(bounds_rise[2])]
+        
+        bounds_rise = [amp_bounds, (dt, 2.0*dt*peak_pos), (0, 0.015)]
+        if initdelay is None or initdelay<dt:
+            fdelay = 0.2*np.mean(bounds_rise[1])
+        else:
+            fdelay = initdelay
+        init_vals_rise = [0.9, fdelay, 0.2*np.mean(bounds_rise[2])]
         
         res_rise = scipy.optimize.minimize(self.risefit, 
                         init_vals_rise, bounds=bounds_rise,
@@ -1149,7 +1154,7 @@ def cb_tests():
     """
     Do some tests of the CB protocol and plot
     """
-    sign = -1
+    sign = 1
     trace_dur = 10.
     dt = 5e-5
     taus = [0.001, 0.005]
@@ -1207,8 +1212,8 @@ if __name__ == "__main__":
     warnings.filterwarnings("ignore", message="UserWarning: findfont: Font family ['sans-serif'] not found. Falling back to DejaVu Sans")
     import pylibrary.PlotHelpers as PH
 
-    aj = aj_tests()
+    # aj = aj_tests()
     #aj.fit_individual_events(aj.onsets)
     #aj.plot_individual_events()
-    # cb_tests()
+    cb_tests()
     # zc_test()
