@@ -215,7 +215,7 @@ class MiniAnalyses():
         for j, i in enumerate(eventlist):
             ix = i + pkt # self.idelay
             if (ix + npost) < len(self.data) and (ix - npre) >= 0:
-                allevents[k,:] = self.data[ix-npre:ix+npost]
+                allevents[k,:] = self.data[(ix-npre):(ix+npost)]
                 k = k + 1
         if k > 0:
             allevents = allevents[0:k, :]  # trim unused
