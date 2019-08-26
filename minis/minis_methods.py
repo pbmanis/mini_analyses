@@ -45,6 +45,10 @@ class MiniAnalyses():
 
     def set_sign(self, sign):
         self.sign = sign
+    
+    def set_risepower(self, risepower):
+        if risepower > 0 and risepower < 8:
+            self.risepower = risepower
 
     def _make_template(self, taus=None):
         """
@@ -87,6 +91,7 @@ class MiniAnalyses():
         self.fitted_tau1 = np.nan
         self.fitted_tau2 = np.nan
         self.Amplitude = np.nan
+        self.avg_fiterr = np.nan
         ndata = len(data)
         avgwin = 5 # int(1.0/self.dt)  # 5 point moving average window for peak detection
 #        print('dt: ', self.dt)
@@ -320,6 +325,7 @@ class MiniAnalyses():
             np.zeros_like(tb[self.tsel:]), risepower=self.risepower, mode=0, fixed_delay=self.bfdelay)
         self.avg_best_fit = self.sign*self.avg_best_fit
         fiterr = np.linalg.norm(self.avg_best_fit-average_event[self.tsel:])
+        self.avg_fiterr = fiterr
         ave = self.sign*average_event
         ipk = np.argmax(ave)
         pk = ave[ipk]
@@ -459,7 +465,7 @@ class MiniAnalyses():
         # set reasonable, but wide bounds, and make sure init values are within bounds
         # (and off center, but not at extremes)
         
-        bounds_rise = [amp_bounds, (dt, 4.*dt*peak_pos), (0., 0.015)]
+        bounds_rise = [amp_bounds, (dt, 4.*dt*peak_pos), (0., 0.005)]
         if initdelay is None or initdelay<dt:
             fdelay = 0.2*np.mean(bounds_rise[2])
         else:
