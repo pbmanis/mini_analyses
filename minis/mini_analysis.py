@@ -104,7 +104,7 @@ class MiniAnalysis():
         """
         Perform detection of miniature synaptic events, and some analysis
         
-        Parmaeters
+        Parameters
         ----------
         dataplan : object
             a dataplan object, with 
