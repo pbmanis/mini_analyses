@@ -292,7 +292,8 @@ class MiniAnalyses():
         else:
             raise ValueError('doubleexp: Mode must be 0 (diff), 1 (linalg.norm) or -1 (just value)')
             
-    def fit_average_event(self, tb, average_event, debug=False, label='', inittaus=[0.001, 0.005], initdelay=None):
+    def fit_average_event(self, tb, average_event, debug=False, label='', 
+                          inittaus=[0.001, 0.005], initdelay=None):
         """
         Fit the averaged event to a double exponential epsc-like function
         """
@@ -302,7 +303,7 @@ class MiniAnalyses():
         self.tau1 = inittaus[0]
         self.tau2 = inittaus[1]
         self.tau2_range = 10.
-        self.tau1_minimum_factor = 5.
+        self.tau1_minimum_factor = 2.
         time_past_peak = 2.5e-4
         self.fitted_tau1 = np.nan
         self.fitted_tau2 = np.nan
@@ -326,6 +327,7 @@ class MiniAnalyses():
         self.avg_best_fit = self.sign*self.avg_best_fit
         fiterr = np.linalg.norm(self.avg_best_fit-average_event[self.tsel:])
         self.avg_fiterr = fiterr
+        # print("averaged data fit, Error = ", self.avg_fiterr)
         ave = self.sign*average_event
         ipk = np.argmax(ave)
         pk = ave[ipk]
