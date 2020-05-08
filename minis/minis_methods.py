@@ -1039,7 +1039,7 @@ class ZCFinder(MiniAnalyses):
         assert sign in [-1, 1]  # must be selective, positive or negative events only
         self.sign = sign
         self.taus = [tau1,  tau2]
-        self.dt = dt
+        self.dt = 1/20000.
         self.template_tmax = template_tmax
         self.idelay = int(delay/dt)  # points delay in template with zeros
         self.template = None  # reset the template if needed.
@@ -1065,6 +1065,8 @@ class ZCFinder(MiniAnalyses):
         #     data_nostim = [range(self.Crit.shape[0])]  # whole trace, otherwise remove stimuli
         # else:  # clip to max of crit array, and be sure index array is integer, not float
         #     data_nostim = [int(x) for x in data_nostim if x < self.Crit.shape[0]]
+        data = FN.lowPass(data,cutoff=3000.,dt = 1/20000.)
+        data=FN.highPass(data,cutoff=60.,dt=1/20000.)
         events = FN.zeroCrossingEvents(data, minLength=minLength, minPeak=minPeak, minSum=minSum, noiseThreshold=thresh, sign=self.sign)
         self.onsets = np.array([x[0] for x in events]).astype(int)
 
@@ -1230,8 +1232,9 @@ if __name__ == "__main__":
     warnings.filterwarnings("ignore", message="UserWarning: findfont: Font family ['sans-serif'] not found. Falling back to DejaVu Sans")
     import pylibrary.PlotHelpers as PH
 
-    # aj = aj_tests()
+    aj = aj_tests()
     #aj.fit_individual_events(aj.onsets)
     #aj.plot_individual_events()
-    cb_tests()
+    #cb_tests()
     # zc_test()
+    mpl.show()

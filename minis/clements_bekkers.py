@@ -8,6 +8,9 @@ which includes cython and numba jit methods that are faster.
 import numpy as np
 import scipy.signal
 import numpy.random
+import matplotlib
+matplotlib.use('Qt5Agg')
+
 import matplotlib.pyplot as mpl
 
 class ClementsBekkers():
@@ -230,9 +233,10 @@ def cb_tests():
     timebase, testpsc, testpscn, ievents = generate_testdata()
     cb = ClementsBekkers()
     template = cb.make_template(1, 10., 100., 0.1)
-    dc, s, crit = cb.clements_bekkers(tdn, template)
+    dc, s, crit = cb.clements_bekkers(timebase, template)
     fig, ax = mpl.subplots(4, 1)
-    ax[0].plot(tb, tdn)
+    ax[0].plot(timebase, tdn)
+    tb = timebase
     print(tb.shape)
     print(dc.shape)
     ax[1].plot(tb[:dc.shape[0]], dc)
@@ -252,5 +256,5 @@ def aj_tests():
     
 
 if __name__ == "__main__":
-    aj_tests()
+    cb_tests()
     #    cb_tests()

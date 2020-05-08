@@ -237,24 +237,25 @@ def downsample(data, n, axis=0, xvals='subsample'):
         return MetaArray(d2, info=info)
 
 if __name__ == '__main__':
-    import matplotlib.mlab as mlab
-    import matplotlib.pylab as mpl
-    detrend = 'linear'
-    padding = 16384
-    nfft = 512
+    # import matplotlib.mlab as mlab
+    # import matplotlib.pylab as mpl
+    # detrend = 'linear'
+    # padding = 16384
+    # nfft = 512
     
-    signal = np.random.randn(5000)
-    fs = 2500.
-    LPF = 500.
-    samplefreq = fs
-    fsig = SignalFilter_LPFButter(signal, LPF, samplefreq, NPole=8)
-    fnotch = NotchFilter(fsig, notchf=[60.], Q=6., QScale=False, samplefreq=fs)
+    # signal = np.random.randn(5000)
+    # fs = 2500.
+    # LPF = 500.
+    # samplefreq = fs
+    # fsig = SignalFilter_LPFButter(signal, LPF, samplefreq, NPole=8)
+    # fnotch = NotchFilter(fsig, notchf=[60.], Q=6., QScale=False, samplefreq=fs)
     
-    s1 = mlab.psd(signal, NFFT=nfft, Fs=fs, detrend=detrend, window=mlab.window_hanning, noverlap=64, pad_to=padding)
-    s2 = mlab.psd(fsig, NFFT=nfft, Fs=fs, detrend=detrend, window=mlab.window_hanning, noverlap=64, pad_to=padding)
-    s3 = mlab.psd(fnotch, NFFT=nfft, Fs=fs, detrend=detrend, window=mlab.window_hanning, noverlap=64, pad_to=padding)
-    mpl.plot(s1[1], s1[0], 'g-')
-    mpl.plot(s1[1], s2[0], 'b-')
-    mpl.plot(s1[1], s3[0], 'r-')
-    mpl.show()
+    # s1 = mlab.psd(signal, NFFT=nfft, Fs=fs, detrend=detrend, window=mlab.window_hanning, noverlap=64, pad_to=padding)
+    # s2 = mlab.psd(fsig, NFFT=nfft, Fs=fs, detrend=detrend, window=mlab.window_hanning, noverlap=64, pad_to=padding)
+    # s3 = mlab.psd(fnotch, NFFT=nfft, Fs=fs, detrend=detrend, window=mlab.window_hanning, noverlap=64, pad_to=padding)
+    # mpl.plot(s1[1], s1[0], 'g-')
+    # mpl.plot(s1[1], s2[0], 'b-')
+    # mpl.plot(s1[1], s3[0], 'r-')
+    # mpl.show()
+    pass
     
