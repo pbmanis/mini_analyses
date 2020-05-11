@@ -4,11 +4,11 @@
 black==19.10b0
 Cython==0.29.17
 lmfit==0.9.13
-
+h5py>=2.10.0
 matplotlib==3.2.0
 matplotlib-scalebar==0.5.1
 nose==1.3.7
-numba==0.43.1
+numba==0.49.1
 numpy==1.17.3
 psutil==5.6.7
 pyparsing==2.4.0
@@ -32,7 +32,7 @@ PyOpenGL==3.1.5
 
 
 -e git+https://github.com/pbmanis/pyqtgraph.git@e3ac16b3a220f76b69bf26c295edf140e2e928b4#egg=pyqtgraph
--e git+https://github.com/pbmanis/pylibrary.git@f16bcbe490e8a11d99792dfd65d3ed18a0cd6756#egg=pylibrary
+-e git+https://github.com/pbmanis/pylibrary.git#egg=pylibrary
 -e git+https://github.com/pbmanis/ephysanalysis.git#egg=ephysanalysis
 
 # # to support montager in ephys package
