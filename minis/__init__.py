@@ -16,4 +16,7 @@ import minis.mini_analysis
 import minis.mini_summary_plots
 import minis.clembek
 import minis.functions
+# flag to allow unit tests to store / overwrite test results
+AUDIT_TESTS = False
+
 

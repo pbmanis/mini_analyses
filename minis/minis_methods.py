@@ -646,6 +646,7 @@ class MiniAnalyses():
                         verticalspacing=0.1, horizontalspacing=0.12,
                         margins={'leftmargin': 0.12, 'rightmargin': 0.12, 'topmargin': 0.03, 'bottommargin': 0.1},
                         labelposition=(-0.12, 0.95))
+        self.P = P
 #        evok, notok = self.individual_event_screen(fit_err_limit=fit_err_limit, tau2_range=tau2_range)
         evok = self.events_ok
         notok = self.events_notok
@@ -714,6 +715,7 @@ class MiniAnalyses():
                         verticalspacing=0.08, horizontalspacing=0.08,
                         margins={'leftmargin': 0.07, 'rightmargin': 0.20, 'topmargin': 0.03, 'bottommargin': 0.1},
                         labelposition=(-0.12, 0.95))
+        self.P = P
         scf = 1e12
         ax = P.axarr
         ax = ax.ravel()

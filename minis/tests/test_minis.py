@@ -8,13 +8,18 @@ Provide synthesis of data, and run each of the tests.
 import sys
 import numpy as np
 import scipy.signal
-import minis.minis_methods as MM
-
-# import pyqtgraph as pg
 import dataclasses
 from dataclasses import dataclass, field
 import typing
 from typing import Union, Dict, List
+
+from minis.util import UserTester
+# from cnmodel.protocols import SynapseTest
+
+import minis.minis_methods as MM
+
+# import pyqtgraph as pg
+
 
 
 def def_taus():
@@ -57,6 +62,21 @@ def printPars(pars):
     d = dataclasses.asdict(pars)
     for k in d.keys():
         print("k: ", k, " = ", d[k])
+
+
+# these are the tests that will be run
+
+def test_ZeroCrossing():
+    MinisTester(method='ZC')
+    
+    
+def test_ClementsBekkers():
+    MinisTester(method='CB')
+
+
+def test_AndradeJonas():
+    MinisTester(method='AJ')
+    
 
 
 def generate_testdata(
@@ -126,7 +146,9 @@ def generate_testdata(
     return timebase, testpsc, testpscn, i_events, t_events
 
 
-def test_ZeroCrossing(pars=None, bigevent:bool=False, plot: bool = False) -> object:
+
+
+def run_ZeroCrossing(pars=None, bigevent:bool=False, plot: bool = False) -> object:
     """
     Do some tests of the CB protocol and plot
     """
@@ -152,7 +174,7 @@ def test_ZeroCrossing(pars=None, bigevent:bool=False, plot: bool = False) -> obj
     return zc
 
 
-def test_ClementsBekkers(pars:dataclass=None, bigevent:bool=False, plot:bool=False) -> object:
+def run_ClementsBekkers(pars:dataclass=None, bigevent:bool=False, plot:bool=False) -> object:
     """
     Do some tests of the CB protocol and plot
     """
@@ -182,7 +204,7 @@ def test_ClementsBekkers(pars:dataclass=None, bigevent:bool=False, plot:bool=Fal
     return cb
 
 
-def test_AndradeJonas(pars:dataclass=None, bigevent:bool=False, plot: bool = False) -> object:
+def run_AndradeJonas(pars:dataclass=None, bigevent:bool=False, plot: bool = False) -> object:
     # sign = -1
     # trace_dur = 10.  # seconds
     # dt = 5e-5
@@ -222,6 +244,115 @@ def test_AndradeJonas(pars:dataclass=None, bigevent:bool=False, plot: bool = Fal
         aj.plots(events=None, title="AJ")  # i_events)
     return aj
 
+class MiniTestMethods():
+    def __init__(self, method:str='cb', plot:bool=False):
+        self.plot = plot
+        self.testmethod = method
+
+    def run_test(self):
+
+        pars = EventParameters()
+        pars.LPF=1500
+
+        if self.testmethod in ["ZC", "zc"]:
+            pars.threshold=0.9
+            pars.mindur=1e-3
+            pars.HPF=20.
+            result = run_ZeroCrossing(pars, plot=True)
+            print('# detected events: ', len(result.allevents))
+            if self.plot:
+                zct = np.arange(0, result.allevents.shape[1]*result.dt, result.dt)
+                for a in range(len(result.allevents)):
+                    mpl.plot(zct, result.allevents[a])
+                mpl.show()
+        if self.testmethod in ["CB", "cb"]:
+            result = run_ClementsBekkers(pars, plot=True)
+            print(len(result.allevents))
+            if self.plot:
+                for a in range(len(result.allevents)):
+                    mpl.plot(result.t_template, result.allevents[a])
+                    mpl.show()
+        if self.testmethod in ["AJ", "aj"]:
+            result = run_AndradeJonas(pars, plot=True)
+            print(len(result.allevents))
+            ajt = result.t_template[0:result.allevents.shape[1]]
+            if self.plot:
+                for a in range(len(result.allevents)):
+                    mpl.plot(ajt, result.allevents[a])
+                    mpl.show()            
+        # if self.testmethod in ["all", "ALL"]:
+        #     run_ZeroCrossing(pars, plot=True)
+        #     run_ClementsBekkers(pars, plot=True)
+        #     run_AndradeJoans(pars, plot=True)
+
+        # print(dir(result))
+        # print('result figure:: ', result.P.figure_handle)
+        # print('result figure:: ', dir(result.P.figure_handle.figure))
+        # print('result figure:: ', result.P)
+        testresult = {'onsets': result.onsets,
+                      'peaks': result.peaks,
+                      'amplitudes': result.amplitudes,
+                      'fitresult': result.fitresult,
+                      'fitted_tau1': result.fitted_tau1,
+                      'fitted_tau2': result.fitted_tau2,
+                      'risepower': result.risepower,
+                      'risetenninety': result.risetenninety,
+                      'decaythirtyseven': result.decaythirtyseven,  
+                  }
+        return testresult 
+
+class MinisTester(UserTester):
+    def __init__(self, method):
+        self.TM = None
+        self.figure = None
+        UserTester.__init__(self, "%s" % method, method)
+
+            
+    def run_test(self, method):
+
+        info = {}
+        
+        self.TM = MiniTestMethods(method=method)
+        test_result = self.TM.run_test()
+
+        if 'figure' in list(test_result.keys()):
+            self.figure = test_result['figure']
+        # # seed random generator using the name of this test
+        # seed = "%s_%s" % (pre, post)
+        #
+        # pre_cell = make_cell(pre)
+        # post_cell = make_cell(post)
+        #
+        # n_term = convergence.get(pre, {}).get(post, None)
+        # if n_term is None:
+        #     n_term = 1
+        # st = SynapseTest()
+        # st.run(pre_cell.soma, post_cell.soma, n_term, seed=seed)
+        # if self.audit:
+        #     st.show_result()
+        #
+        # info = dict(
+        #     rel_events=st.release_events(),
+        #     rel_timings=st.release_timings(),
+        #     open_prob=st.open_probability(),
+        #     event_analysis=st.analyze_events(),
+        #     )
+        # self.st = st
+        #
+        # #import weakref
+        # #global last_syn
+        # #last_syn = weakref.ref(st.synapses[0].terminal.relsi)
+        #
+        return test_result
+    
+    def assert_test_info(self, *args, **kwds):
+        try:
+            super(MinisTester, self).assert_test_info( *args, **kwds)
+        finally:
+            if self.figure is not None:
+                del(self.figure)
+
+    
 
 if __name__ == "__main__":
     if len(sys.argv[0]) > 1:
@@ -256,29 +387,29 @@ if __name__ == "__main__":
             pars.threshold=0.9
             pars.mindur=1e-3
             pars.HPF=20.
-            zc = test_ZeroCrossing(pars, plot=True)
+            zc = run_ZeroCrossing(pars, plot=True)
             print('# detected events: ', len(zc.allevents))
             zct = np.arange(0, zc.allevents.shape[1]*zc.dt, zc.dt)
             for a in range(len(zc.allevents)):
                 mpl.plot(zct, zc.allevents[a])
             mpl.show()
         if testmethod in ["CB", "cb"]:
-            cb = test_ClementsBekkers(pars, plot=True)
+            cb = run_ClementsBekkers(pars, plot=True)
             print(len(cb.allevents))
             for a in range(len(cb.allevents)):
                 mpl.plot(cb.t_template, cb.allevents[a])
             mpl.show()
         if testmethod in ["AJ", "aj"]:
-            aj = test_AndradeJonas(pars, plot=True)
+            aj = run_AndradeJonas(pars, plot=True)
             print(len(aj.allevents))
             ajt = aj.t_template[0:aj.allevents.shape[1]]
             for a in range(len(aj.allevents)):
                 mpl.plot(ajt, aj.allevents[a])
             mpl.show()            
         if testmethod in ["all", "ALL"]:
-            test_ZeroCrossing(pars, plot=True)
-            test_ClementsBekkers(pars, plot=True)
-            test_AndradeJoans(pars, plot=True)
+            run_ZeroCrossing(pars, plot=True)
+            run_ClementsBekkers(pars, plot=True)
+            run_AndradeJoans(pars, plot=True)
 
     #    pg.show()
     # if sys.flags.interactive == 0:
