@@ -21,7 +21,8 @@ import timeit
 from scipy.optimize import curve_fit
 from numba import jit
 import lmfit
-import minis.digital_filters as dfilt
+#import minis.digital_filters as dfilt
+import pylibrary.tools.digital_filters as dfilt
 import minis.functions as FN # Luke's misc. function library
 import pyximport
 pyximport.install()
@@ -47,8 +48,10 @@ class MiniAnalyses():
         self.sign = sign
     
     def set_risepower(self, risepower):
-        if risepower > 0 and risepower < 8:
+        if risepower > 0 and risepower <= 8:
             self.risepower = risepower
+        else:
+            raise ValueError("Risepower must be 0 < n <= 8")
 
     def _make_template(self, taus=None):
         """
@@ -60,6 +63,7 @@ class MiniAnalyses():
             tau_1,  tau_2 = taus
             
         t_psc = np.arange(0,  self.template_tmax,  self.dt)
+        self.t_template = t_psc
         Aprime = (tau_2/tau_1)**(tau_1/(tau_1-tau_2))
         self.template = np.zeros_like(t_psc)
         tm = 1./Aprime * ((1-(np.exp(-t_psc/tau_1)))**self.risepower * np.exp((-t_psc/tau_2)))
@@ -73,6 +77,38 @@ class MiniAnalyses():
         else:
             self.template = -self.template
             self.template_amax = np.min(self.template)    
+        # import matplotlib.pyplot as mpl
+ #        mpl.plot(t_psc, self.template)
+ #        mpl.show()
+    
+    def LPFData(self, data, lpf=None, NPole=8)->np.ndarray:
+        if lpf is not None:
+            if lpf > 0.49/self.dt:
+                raise ValueError('lpf > Nyquist: ', lpf, 0.49/self.dt, self.dt, 1./self.dt)
+            return dfilt.SignalFilter_LPFButter(data,  lpf,  1./self.dt,  NPole=8)
+        else:
+            return data
+            
+
+    def HPFData(self, data, hpf=None, NPole=8)->np.ndarray:
+        if hpf is not None:
+            if len(data.shape)==1:
+                ndata = data.shape[0]
+            else:
+                ndata = data.shape[1]
+            nyqf = 0.5*ndata*self.dt
+            if hpf < 1./nyqf:  # duration of a trace
+                raise ValueError('hpf < Nyquist: ', hpf, 'nyquist', 1./nyqf, 'ndata', ndata, 'dt', self.dt, 'sampelrate', 1./self.dt)
+            print('hpf < Nyquist: ', hpf, 'nyquist', 1./nyqf, 'ndata', ndata, 'dt', self.dt, 'sampelrate', 1./self.dt)
+            data = dfilt.SignalFilter_HPFButter(data,  hpf,  1./self.dt,  NPole=8)
+            import matplotlib.pyplot as mpl
+            mpl.plot(data)
+            mpl.show()
+            return(data)
+        else:
+
+            return data
+
 
     def summarize(self, data, order=11, verbose=False):
         """
@@ -671,6 +707,8 @@ class MiniAnalyses():
         """
         Plot the results from the analysis and the fitting
         """
+        import matplotlib.pyplot as mpl
+        import pylibrary.plotting.plothelpers as PH
         data = self.data
         P = PH.regular_grid(3 , 1, order='columnsfirst', figsize=(8., 6), showgrid=False,
                         verticalspacing=0.08, horizontalspacing=0.08,
@@ -690,7 +728,7 @@ class MiniAnalyses():
         if len(self.onsets) is not None:
 #            ax[0].plot(tb[events],  data[events],  'go',  markersize=5, label='Events')
 #        ax[0].plot(tb[self.peaks],  self.data[self.peaks],  'r^', label=)
-            ax[0].plot(tb[self.smpkindex],  scf*np.array(self.smoothed_peaks),  'r^', label='Smoothed Peaks')
+            ax[0].plot(tb[self.smpkindex],  scf*np.array(self.smoothed_peaks),  'r+', label='Smoothed Peaks')
         ax[0].set_ylabel('I (pA)')
         ax[0].set_xlabel('T (s)')
         ax[0].legend(fontsize=8, loc=2, bbox_to_anchor=(1.0, 1.0))
@@ -706,7 +744,6 @@ class MiniAnalyses():
         ax[1].set_ylabel('Deconvolution')
         ax[1].set_xlabel('T (s)')
         ax[1].legend(fontsize=8, loc=2, bbox_to_anchor=(1.0, 1.0))
-#        print (self.dt, self.template_tmax, len(self.template))
         # averaged events, convolution template, and fit
         if self.averaged:
             ax[2].plot(self.avgeventtb[:len(self.avgevent)],  scf*self.avgevent, 'k', label='Average Event')
@@ -738,8 +775,8 @@ class MiniAnalyses():
             ax[2].set_ylabel('Averaged I (pA)')
             ax[2].set_xlabel('T (s)')
             ax[2].legend(fontsize=8, loc=2, bbox_to_anchor=(1.0, 1.0))
-        if self.fitted:
-            print('measures: ', self.risetenninety, self.decaythirtyseven)
+        # if self.fitted:
+        #     print('measures: ', self.risetenninety, self.decaythirtyseven)
         mpl.show()
         
 
@@ -810,25 +847,28 @@ class ClementsBekkers(MiniAnalyses):
         self.risepower = risepower
         self.min_event_amplitude = min_event_amplitude
 
-    def _make_template(self):
-        """
-        Private function: make template when it is needed
-        """
-        tau_1,  tau_2 = self.taus
-        t_psc = np.arange(0,  self.template_tmax,  self.dt)
-        Aprime = (tau_2/tau_1)**(tau_1/(tau_1-tau_2))
-        self.template = np.zeros_like(t_psc)
-        tm = 1./Aprime * ((1-(np.exp(-t_psc/tau_1)))**self.risepower * np.exp((-t_psc/tau_2)))
-        
-        if self.idelay > 0:
-            self.template[self.idelay:] = tm[:-self.idelay]  # shift the template
-        else:
-            self.template = tm
-        if self.sign > 0:
-            self.template_amax = np.max(self.template)
-        else:
-            self.template = -self.template
-            self.template_amax = np.min(self.template)
+    # def _make_template(self):
+    #     """
+    #     Private function: make template when it is needed
+    #     """
+    #     tau_1,  tau_2 = self.taus
+    #     t_psc = np.arange(0,  self.template_tmax,  self.dt)
+    #     Aprime = (tau_2/tau_1)**(tau_1/(tau_1-tau_2))
+    #     self.template = np.zeros_like(t_psc)
+    #     tm = 1./Aprime * ((1-(np.exp(-t_psc/tau_1)))**self.risepower * np.exp((-t_psc/tau_2)))
+    #
+    #     if self.idelay > 0:
+    #         self.template[self.idelay:] = tm[:-self.idelay]  # shift the template
+    #     else:
+    #         self.template = tm
+    #     if self.sign > 0:
+    #         self.template_amax = np.max(self.template)
+    #     else:
+    #         self.template = -self.template
+    #         self.template_amax = np.min(self.template)
+    #     import matplotlib.pyplot as mpl
+    #     mpl.plot(t_psc, self.template)
+    #     mpl.show()
     
     def set_cb_engine(self, engine):
         """
@@ -902,8 +942,8 @@ class ClementsBekkers(MiniAnalyses):
         endtime = timeit.default_timer() - starttime
         self.Crit = self.sign*self.Crit  # assure that crit is positive
     
-    def cbTemplateMatch(self,  data, threshold=3.0, order=7):
-        self.data = data
+    def cbTemplateMatch(self,  data, threshold=3.0, order=7, lpf=None):
+        self.data = self.LPFData(data, lpf)
         self.threshold = threshold
 
         self.clements_bekkers(self.data)  # flip data sign if necessary
@@ -945,6 +985,7 @@ class AndradeJonas(MiniAnalyses):
         self.onsets = None
         self.timebase = None
         self.dt = None
+        self.maxlpf = None
         self.sign = 1
         self.taus = None
         self.template_max = None
@@ -960,6 +1001,7 @@ class AndradeJonas(MiniAnalyses):
         self.sign = sign
         self.taus = [tau1,  tau2]
         self.dt = dt
+        self.maxlpf = 0.49/self.dt
         self.template_tmax = template_tmax
         self.idelay = int(delay/dt)  # points delay in template with zeros
         self.template = None  # reset the template if needed.
@@ -968,30 +1010,32 @@ class AndradeJonas(MiniAnalyses):
         self.min_event_amplitude = min_event_amplitude
         
  
-    def _make_template(self):
-        """
-        Private function: make template when it is needed
-        """
-        tau_1,  tau_2 = self.taus
-        t_psc = np.arange(0,  self.template_tmax,  self.dt)
-        Aprime = (tau_2/tau_1)**(tau_1/(tau_1-tau_2))
-        self.template = np.zeros_like(t_psc)
-        tm = 1./Aprime * ((1-(np.exp(-t_psc/tau_1)))**self.risepower * np.exp((-t_psc/tau_2)))
-        
-        if self.idelay > 0:
-            self.template[self.idelay:] = tm[:-self.idelay]  # shift the template
-        else:
-            self.template = tm
-        if self.sign > 0:
-            self.template_amax = np.max(self.template)
-        else:
-            self.template = -self.template
-            self.template_amax = np.min(self.template)
+    # def _make_template(self):
+    #     """
+    #     Private function: make template when it is needed
+    #     """
+    #     tau_1,  tau_2 = self.taus
+    #     t_psc = np.arange(0,  self.template_tmax,  self.dt)
+    #     Aprime = (tau_2/tau_1)**(tau_1/(tau_1-tau_2))
+    #     self.template = np.zeros_like(t_psc)
+    #     tm = 1./Aprime * ((1-(np.exp(-t_psc/tau_1)))**self.risepower * np.exp((-t_psc/tau_2)))
+    #
+    #     if self.idelay > 0:
+    #         self.template[self.idelay:] = tm[:-self.idelay]  # shift the template
+    #     else:
+    #         self.template = tm
+    #     if self.sign > 0:
+    #         self.template_amax = np.max(self.template)
+    #     else:
+    #         self.template = -self.template
+    #         self.template_amax = np.min(self.template)
 
-    def deconvolve(self,  data,  data_nostim=None, thresh=1.0,  llambda=5.0,  order=7, lpf=6000., verbose=False):
+    def deconvolve(self,  data,  data_nostim=None, thresh=1.0,  llambda=5.0,  order=7, lpf=None, verbose=False):
         if self.template is None:
             self._make_template()
-        self.data = dfilt.SignalFilter_LPFButter(data,  lpf,  1./self.dt,  NPole=8)
+
+        self.data = self.LPFData(data, lpf)
+
         self.timebase = np.arange(0.,  self.data.shape[0]*self.dt,  self.dt)
     #    print (np.max(self.timebase), self.dt)
         
@@ -1006,11 +1050,11 @@ class AndradeJonas(MiniAnalyses):
             data_nostim = [range(self.Crit.shape[0])]  # whole trace, otherwise remove stimuli
         else:  # clip to max of crit array, and be sure index array is integer, not float
             data_nostim = [int(x) for x in data_nostim if x < self.Crit.shape[0]]
-        sd = np.nanstd(self.Crit[data_nostim])
+        sd = np.nanstd(self.Crit[tuple(data_nostim)])
         self.sdthr = sd * thresh  # set the threshold
         self.above = np.clip(self.Crit,  self.sdthr,  None)
         self.onsets = scipy.signal.argrelextrema(self.above,  np.greater,  order=int(order))[0] - 1 + self.idelay
-        self.summarize(data)
+        self.summarize(self.data)
         endtime = timeit.default_timer() - starttime
         if verbose:
             print('AJ run time: {0:.4f} s'.format(endtime))
@@ -1039,7 +1083,7 @@ class ZCFinder(MiniAnalyses):
         assert sign in [-1, 1]  # must be selective, positive or negative events only
         self.sign = sign
         self.taus = [tau1,  tau2]
-        self.dt = 1/20000.
+        self.dt = dt
         self.template_tmax = template_tmax
         self.idelay = int(delay/dt)  # points delay in template with zeros
         self.template = None  # reset the template if needed.
@@ -1048,14 +1092,15 @@ class ZCFinder(MiniAnalyses):
         self.min_event_amplitude = min_event_amplitude
         
  
-    def _make_template(self):
-        """
-        Private function: make template when it is needed
-        """
-        pass  # no template used...
+    # def _make_template(self):
+    #     """
+    #     Private function: make template when it is needed
+    #     """
+    #     pass  # no template used...
         
-    def find_events(self, data, data_nostim=None, minPeak=0., thresh=0., minSum=0., minLength=3, verbose=False):
-        self.data = data # filtering should be done before this ... # dfilt.SignalFilter_LPFButter(data,  lpf,  1./self.dt,  NPole=8)
+    def find_events(self, data, data_nostim=None, minPeak=0., thresh=0., minSum=0., minLength=3, lpf=None, hpf=None, verbose=False):
+        self.data = self.LPFData(data, lpf)
+        # self.data = self.HPFData(data, hpf)
         self.timebase = np.arange(0.,  self.data.shape[0]*self.dt,  self.dt)
 
         starttime = timeit.default_timer()
@@ -1065,12 +1110,13 @@ class ZCFinder(MiniAnalyses):
         #     data_nostim = [range(self.Crit.shape[0])]  # whole trace, otherwise remove stimuli
         # else:  # clip to max of crit array, and be sure index array is integer, not float
         #     data_nostim = [int(x) for x in data_nostim if x < self.Crit.shape[0]]
-        data = FN.lowPass(data,cutoff=3000.,dt = 1/20000.)
-        data=FN.highPass(data,cutoff=60.,dt=1/20000.)
-        events = FN.zeroCrossingEvents(data, minLength=minLength, minPeak=minPeak, minSum=minSum, noiseThreshold=thresh, sign=self.sign)
+        # data = FN.lowPass(data,cutoff=3000.,dt = 1/20000.)
+        if hpf is not None:
+            self.data=FN.highPass(self.data,cutoff=hpf,dt=self.dt)
+        events = FN.zeroCrossingEvents(self.data, minLength=minLength, minPeak=minPeak, minSum=minSum, noiseThreshold=thresh, sign=self.sign)
         self.onsets = np.array([x[0] for x in events]).astype(int)
 
-        self.summarize(data)
+        self.summarize(self.data)
         endtime = timeit.default_timer() - starttime
         if verbose:
             print('ZC run time: {0:.4f} s'.format(endtime))
@@ -1084,157 +1130,3 @@ def moving_average(a,  n=3) :
     return ret[n - 1:] / n, n
 
 
-def generate_testdata(dt,  maxt=10., meanrate=10.,  amp=20.e-12,  ampvar=5.e-12,  
-        noise=2.5e-12, taus=[0.001, 0.010], baseclass=None, func=None, sign=1, 
-        expseed=None, noiseseed=None,
-        bigevent=None):
-    """
-        meanrate is in Hz(events/second)
-        maxt is in seconds
-        bigevent is a dict {'t': delayinsec, 'I': amplitudeinA}
-    """
-    if baseclass is None and func is not None:
-        raise ValueError('Need base class definition')
-    tdur = 0.020
-    timebase = np.arange(0.,  maxt,  dt) # in ms
-    t_psc = np.arange(0.,  tdur,  dt)  # time base for single event template in ms
-    if func is None:
-        tau_1 = taus[0] # ms
-        tau_2 = taus[1] # ms
-        Apeak = amp # pA
-        Aprime = (tau_2/tau_1)**(tau_1/(tau_1-tau_2))
-        g = Aprime * (-np.exp(-t_psc/tau_1) + np.exp((-t_psc/tau_2)))
-        gmax = np.max(g)
-        print('gmax: ', gmax)
-        g = sign*g*amp/gmax
-        print(f'max g: {np.min(g):.6e}')
-    else:
-        baseclass._make_template()
-        gmax = np.min(baseclass.template)
-        g = sign*amp*baseclass.template/gmax
-        print('gmaxb: ', np.max(gmax))
-   
-    testpsc = np.zeros(timebase.shape)
-    if expseed is None:
-        eventintervals = np.random.exponential(1./meanrate, int(maxt*meanrate))
-    else:
-        np.random.seed(expseed)
-        eventintervals = np.random.exponential(1./meanrate, int(maxt*meanrate))
-    eventintervals = eventintervals[eventintervals < 10.]
-    events = np.cumsum(eventintervals)
-    if bigevent is not None:
-        events = np.append(events, bigevent['t'])
-        events = np.sort(events)
-    t_events = events[events < maxt]  # time of events with exp distribution
-    i_events = np.array([int(x/dt) for x in t_events])
-    testpsc[i_events] = np.random.normal(1.,  ampvar/amp,  len(i_events))
-    if bigevent is not None:
-        ipos = int(bigevent['t']/dt) # position in array
-        testpsc[ipos] = bigevent['I']
-    testpsc = scipy.signal.convolve(testpsc,  g,  mode='full')[:timebase.shape[0]]
-    # f, ax = mpl.subplots(1,1)
-    # ax.plot(dt*np.arange(len(testpsc)), testpsc)
-    # mpl.show()
-    if noise > 0:
-        if noiseseed is None:
-            testpscn = testpsc + np.random.normal(0.,  noise,  testpsc.shape)
-        else:
-            np.random.seed(noiseseed)
-            testpscn = testpsc + np.random.normal(0.,  noise,  testpsc.shape)
-    else:
-        testpscn = testpsc
-    return timebase,  testpsc,  testpscn,  i_events
-
-def zc_test():
-    """
-    Do some tests of the CB protocol and plot
-    """
-    sign = -1
-    trace_dur = 10.
-    dt = 5e-5
-    taus = [0.001, 0.005]
-    minlen = int(0.003/dt)
-    for i in range(1):
-        timebase,  testpsc,  testpscn,  i_events = generate_testdata(dt, maxt=trace_dur,
-            amp=100e-12,  ampvar=20e-12,  meanrate=10., noise=15.0e-12, taus=taus, func=None, sign=sign,
-            expseed=i, noiseseed=i*47, bigevent={'t': 1.0, 'I': 20.})
-        zc = ZCFinder()
-        zc.setup(dt=dt, tau1=0.001, tau2=0.005, sign=-1)
-        events = zc.find_events(testpscn,  data_nostim=None, thresh=1.5,  minLength=minlen)
-    # print(len(events))
-    zc.plots(title = 'Zero Crossings')
-    # f, ax = mpl.subplots(3, 1)
-    # ax[0].plot(timebase, testpscn)
-    # evindex = [x[0] for x in events]
-    # ax[0].plot(timebase[evindex], testpscn[evindex], 'ro', markersize=2)
-    # mpl.show()
-
-
-def cb_tests():
-    """
-    Do some tests of the CB protocol and plot
-    """
-    sign = 1
-    trace_dur = 10.
-    dt = 5e-5
-    taus = [0.001, 0.005]
-    for i in range(1):
-        timebase,  testpsc,  testpscn,  i_events = generate_testdata(dt, maxt=trace_dur,
-            amp=100e-12,  ampvar=20e-12,  meanrate=10., noise=15.0e-12, taus=taus, func=None, sign=sign,
-            expseed=i, noiseseed=i*47, bigevent={'t': 1.0, 'I': 20.})
-        cb = ClementsBekkers()
-        cb.setup(tau1=0.001,  tau2=0.003,  dt=dt,  delay=0.0, template_tmax=3*taus[1],  sign=sign)
-        cb._make_template()
-        cb.cbTemplateMatch(testpscn,  threshold=3.0)
-    cb.plots(title='Clements Bekkers')
-    return cb
-
-
-def aj_tests():
-    sign = -1
-    trace_dur = 10.  # seconds
-    dt = 5e-5
-    amp = 100e-12
-    for i in range(1):
-        aj = AndradeJonas()
-        aj.setup(tau1=0.001,  tau2=0.007,  dt=dt,  delay=0.0, template_tmax=trace_dur, # taus are for template
-            sign=sign, risepower=4.0)
-        # generate test data
-        timebase,  testpsc,  testpscn,  i_events = generate_testdata(aj.dt, maxt=trace_dur,
-                meanrate=10.,
-                amp=amp,  ampvar=20e-12,  noise=15e-12, taus=[0.001, 0.005], baseclass=aj, func=None, sign=sign,
-                expseed=i, noiseseed=i*47, bigevent={'t': 1.0, 'I': 20})
-
-        aj.deconvolve(testpscn-np.mean(testpscn),  thresh=5, llambda=1,  order=int(0.001/aj.dt))
-    aj.summarize(aj.data)
-    aj.plots(events=None, title='AJ') # i_events)
-    return aj
-    
-
-if __name__ == "__main__":
-    import matplotlib
-
-    rcParams = matplotlib.rcParams
-    rcParams['svg.fonttype'] = 'none' # No text as paths. Assume font installed.
-    rcParams['pdf.fonttype'] = 42
-    rcParams['ps.fonttype'] = 42
-    #rcParams['text.latex.unicode'] = True
-    #rcParams['font.family'] = 'sans-serif'
-    # rcParams['font.sans-serif'] = 'DejaVu Sans'
-    # rcParams['font.weight'] = 'regular'                  # you can omit this, it's the default
-    # rcParams['font.sans-serif'] = ['Arial']
-    rcParams['text.usetex'] = False
-    import matplotlib.pyplot as mpl
-    import matplotlib.collections as collections
-    import warnings  # need to turn off a scipy future warning.
-    warnings.filterwarnings("ignore", category=FutureWarning)
-    warnings.filterwarnings("ignore", category=UserWarning)
-    warnings.filterwarnings("ignore", message="UserWarning: findfont: Font family ['sans-serif'] not found. Falling back to DejaVu Sans")
-    import pylibrary.PlotHelpers as PH
-
-    aj = aj_tests()
-    #aj.fit_individual_events(aj.onsets)
-    #aj.plot_individual_events()
-    #cb_tests()
-    # zc_test()
-    mpl.show()

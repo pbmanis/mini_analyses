@@ -57,7 +57,8 @@ import scipy.stats
 
 import minis.minis_methods as minis
 import pylibrary.tools.utility as PU
-import minis.digital_filters as DF
+import pylibrary.tools.digital_filters as dfile
+#import minis.digital_filters as DF
 import pylibrary.plotting.plothelpers as PH
 import ephysanalysis as EP
 from matplotlib.backends.backend_pdf import PdfPages

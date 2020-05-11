@@ -7,8 +7,8 @@ init for minis
 version_info = (0, 3, 0, '')
 __version__ = '%d.%d.%d%s' % version_info
 
-import minis.clements_bekkers
-import minis.digital_filters
+# import minis.clements_bekkers
+# import minis.digital_filters
 import minis.make_table
 import minis.minis_methods
 import minis.mini_analysis
