@@ -56,9 +56,9 @@ import scipy.signal
 import scipy.stats
 
 import minis.minis_methods as minis
-import pylibrary.Utility as PU
+import pylibrary.tools.utility as PU
 import minis.digital_filters as DF
-import pylibrary.PlotHelpers as PH
+import pylibrary.plotting.plothelpers as PH
 import ephysanalysis as EP
 from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.collections as collections

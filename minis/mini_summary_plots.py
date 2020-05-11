@@ -22,7 +22,7 @@ import scipy.stats
 rc('text', usetex=False)
 #rc('font',**{'family':'sans-serif','sans-serif':['Helvetica']})
 
-import pylibrary.PlotHelpers as PH
+import pylibrary.plotting.plothelpers as PH
 
 class MiniSummarize():
     
