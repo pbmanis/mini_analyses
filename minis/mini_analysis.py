@@ -253,7 +253,7 @@ class MiniAnalysis:
         )
         # set false for pub-quality output (but large size)
         self.acqr = acqr
-        dt = 0.1
+
         mousedata = self.datasets[mouse]
         if self.override_threshold:
             mousedata["thr"] = self.global_threshold  # override the threshold setting
@@ -422,7 +422,8 @@ class MiniAnalysis:
         )
 
     def analyze_block_traces(
-        self, mode:str, data:np.ndarray, time_base:np.ndarray, maxt:float, dt:float, mousedata:str, exclude_traces:list, ntr:int
+        self, mode:str, data:np.ndarray, time_base:np.ndarray, 
+        maxt:float, dt:float, mousedata:str, exclude_traces:list, ntr:int
     )-> (list, int):
         if mode == "aj":
             aj = minis.AndradeJonas()

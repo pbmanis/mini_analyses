@@ -963,7 +963,8 @@ class MiniAnalyses:
             mpl.show()
 
     def plots(
-        self, events: Union[np.ndarray, None] = None, title: Union[str, None] = None
+        self, events: Union[np.ndarray, None] = None, title: Union[str, None] = None,
+        testmode:bool=False
     ) -> None:
         """
         Plot the results from the analysis and the fitting
@@ -1097,7 +1098,12 @@ class MiniAnalyses:
             ax[2].legend(fontsize=8, loc=2, bbox_to_anchor=(1.0, 1.0))
         # if self.fitted:
         #     print('measures: ', self.risetenninety, self.decaythirtyseven)
-        mpl.show()
+        if testmode:  # just display briefly
+            mpl.show(block=False)
+            mpl.pause(2)
+            mpl.close()
+        else:    
+            mpl.show()
 
 
 @jit(nopython=True, cache=True)
@@ -1183,46 +1189,10 @@ class ClementsBekkers(MiniAnalyses):
         cython requires compilation outised
         Numba does a JIT compilation (see routine above)
         """
-        if engine in ["numba", "cython"]:
+        if engine in ["numba", "cython", "python"]:
             self.engine = engine
         else:
-            raise ValueError("CB detection engine must be either numba or cython")
-
-    def clements_bekkers_numba(
-        self, data: np.ndarray
-    ) -> (np.ndarray, np.ndarray, np.ndarray):
-        self.timebase = np.arange(0.0, self.data.shape[0] * self.dt, self.dt)
-        D = data.view(np.ndarray)
-        if np.std(D) < 5e-12:
-            DC = np.zeros(self.template.shape[0])
-            Scale = np.zeros(self.template.shape[0])
-            Crit = np.zeros(self.template.shape[0])
-        else:
-            DC, Scale, Crit = nb_clementsbekkers(D, self.template)
-        return DC, Scale, Crit
-
-    def clements_bekkers_cython(self, data: np.ndarray) -> None:
-        # pass
-        ### broken for py3 at the moment
-        if self.template is None:
-            self._make_template()
-        self.timebase = np.arange(0.0, self.data.shape[0] * self.dt, self.dt)
-        D = data.view(np.ndarray)
-        T = self.template.view(np.ndarray)
-        crit = np.zeros_like(D)
-        scale = np.zeros_like(D)
-        offset = np.zeros_like(D)
-        pkl = np.zeros(100000)
-        evl = np.zeros(100000)
-        nout = 0
-        nt = T.shape[0]
-        nd = D.shape[0]
-        clembek.clembek(
-            D, T, self.threshold, crit, scale, offset, pkl, evl, nout, self.sign, nt, nd
-        )
-        self.Scale = scale
-        self.Crit = crit
-        self.DC = offset
+            raise ValueError(f"CB detection engine must be one of python, numba or cython. Got{str(engine):s}")
 
     def clements_bekkers(self, data: np.ndarray) -> None:
         """
@@ -1248,14 +1218,104 @@ class ClementsBekkers(MiniAnalyses):
             self.DC, self.Scale, self.Crit = nb_clementsbekkers(D, T)
         elif self.engine == "cython":
             self.clements_bekkers_cython(D)
+        elif self.engine == "python":
+            self.DC, self.Scale, self.Crit = self.clements_bekkers_python(D)
+
         else:
             raise ValueError(
-                'clements_bekkers: computation engine unknown (%s); must be "numba" or "cython"'
+                'Clements_Bekkers: computation engine unknown (%s); must be "python", "numba" or "cython"'
                 % self.engine
             )
         endtime = timeit.default_timer() - starttime
+        self.runtime = endtime
         self.Crit = self.sign * self.Crit  # assure that crit is positive
 
+    def clements_bekkers_numba(
+        self, data: np.ndarray
+    ) -> (np.ndarray, np.ndarray, np.ndarray):
+        #print('Template len: ', self.template.shape, 'data: ', self
+        self.timebase = np.arange(0.0, self.data.shape[0] * self.dt, self.dt)
+        D = data.view(np.ndarray)
+        # print('Template len: ', self.template.shape, 'data: ', D.shape, 'max(t): ', np.max(self.timebase))
+        if np.std(D) < 5e-12:
+            DC = np.zeros(self.template.shape[0])
+            Scale = np.zeros(self.template.shape[0])
+            Crit = np.zeros(self.template.shape[0])
+        else:
+            DC, Scale, Crit = nb_clementsbekkers(D, self.template)
+        return DC, Scale, Crit
+
+    def clements_bekkers_cython(self, data: np.ndarray) -> None:
+        # version using cythonized clembek (imported above)
+        starttime = timeit.default_timer()
+        if self.template is None:
+            self._make_template()
+        self.timebase = np.arange(0.0, self.data.shape[0] * self.dt, self.dt)
+        D = data.view(np.ndarray)
+        T = self.template.view(np.ndarray)
+        crit = np.zeros_like(D)
+        scale = np.zeros_like(D)
+        offset = np.zeros_like(D)
+        pkl = np.zeros(100000)
+        evl = np.zeros(100000)
+        nout = 0
+        nt = T.shape[0]
+        nd = D.shape[0]
+        clembek.clembek(
+            D, T, self.threshold, crit, scale, offset, pkl, evl, nout, self.sign, nt, nd
+        )
+        endtime = timeit.default_timer() - starttime
+        self.runtime = endtime
+
+        self.Scale = scale
+        self.Crit = crit
+        self.DC = offset
+
+
+    def _rollingSum(self, data, n):
+        d1 = data.copy()
+        d1[1:] = np.cumsum(d1[1:]) # d1[1:] + d1[:-1]  # integrate
+        d2 = np.empty(len(d1) - n + 1, dtype=data.dtype)
+        d2[0] = d1[n-1]  # copy first point
+        d2[1:] = d1[n:] - d1[:-n]  # subtract
+        return d2
+    
+    def clements_bekkers_python(self, data:np.ndarray) ->(np.ndarray, np.ndarray, np.ndarray):
+        """Implements Clements-bekkers algorithm: slides template across data,
+        returns array of points indicating goodness of fit.
+        Biophysical Journal, 73: 220-229, 1997.
+    
+        Campagnola's version...
+        """
+
+        starttime = timeit.default_timer()
+        ## Strip out meta-data for faster computation
+        D = data.view(np.ndarray)
+        if self.template is None:
+            self._make_template()
+        T = self.template.view(np.ndarray)
+        NDATA = len(D)
+        ## Prepare a bunch of arrays we'll need later
+        N = len(T)
+        sumT = T.sum()
+        sumT2 = (T**2.).sum()
+        sumD = self._rollingSum(D, N)
+        sumD2 = self._rollingSum(D**2., N)
+        sumTD = scipy.signal.correlate(D, T, mode='valid')
+    
+        ## compute scale factor, offset at each location:
+        scale = (sumTD - sumT * sumD /N) / (sumT2 - sumT**2. /N)
+        offset =(sumD - scale * sumT) /N
+    
+        ## compute SSE at every location
+        SSE = sumD2 + scale**2.0 * sumT2 + N * offset**2. - 2. * (scale*sumTD + offset*sumD - scale*offset*sumT)
+        ## finally, compute error and detection criterion
+        error = np.sqrt(SSE / (N-1))
+        DC = scale / error
+        endtime = timeit.default_timer() - starttime
+        self.runtime = endtime
+        return DC, scale, -offset
+        
     def cbTemplateMatch(
         self,
         data: np.ndarray,
@@ -1354,6 +1414,7 @@ class AndradeJonas(MiniAnalyses):
         lpf: Union[float, None] = None,
         verbose: bool = False,
     ) -> None:
+        starttime = timeit.default_timer()
         if self.template is None:
             self._make_template()
 
@@ -1385,6 +1446,8 @@ class AndradeJonas(MiniAnalyses):
             - 1
             + self.idelay
         )
+        endtime = timeit.default_timer() - starttime
+        self.runtime = endtime
         self.summarize(self.data)
         endtime = timeit.default_timer() - starttime
         if verbose:

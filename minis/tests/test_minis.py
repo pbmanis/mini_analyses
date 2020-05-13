@@ -67,16 +67,35 @@ def printPars(pars):
 # these are the tests that will be run
 
 def test_ZeroCrossing():
-    MinisTester(method='ZC')
-    
-    
-def test_ClementsBekkers():
-    MinisTester(method='CB')
+    MinisTester(method='ZC', sign=1)
+        
+def test_ClementsBekkers_numba():
+    MinisTester(method='CB', sign=1, extra='numba') # accelerated method
 
+def test_ClementsBekkers_cython():
+    MinisTester(method='CB', sign=1, extra='cython') # accelerated method
+
+# def test_ClementsBekkers_python():
+#     MinisTester(method='CB', extra='python') # slow interpreted method
 
 def test_AndradeJonas():
-    MinisTester(method='AJ')
+    MinisTester(method='AJ', sign=1)
+  
+def test_ZeroCrossing_neg():
+  MinisTester(method='ZC', sign=-1)
     
+def test_ClementsBekkers_numba_neg():
+  MinisTester(method='CB', sign=-1, extra='numba') # accelerated method
+
+def test_ClementsBekkers_cython_neg():
+  MinisTester(method='CB', sign=-1, extra='cython') # accelerated method
+
+# def test_ClementsBekkers_python():
+#     MinisTester(method='CB', extra='python') # slow interpreted method
+
+def test_AndradeJonas_neg():
+  MinisTester(method='AJ', sign=-1)
+       
 
 
 def generate_testdata(
@@ -170,11 +189,11 @@ def run_ZeroCrossing(pars=None, bigevent:bool=False, plot: bool = False) -> obje
         print('# events in template: ', len(t_events))
         
     if plot:
-        zc.plots(title="Zero Crossings")
+        zc.plots(title="Zero Crossings", testmode=True)
     return zc
 
 
-def run_ClementsBekkers(pars:dataclass=None, bigevent:bool=False, plot:bool=False) -> object:
+def run_ClementsBekkers(pars:dataclass=None, bigevent:bool=False, extra='numba', plot:bool=False) -> object:
     """
     Do some tests of the CB protocol and plot
     """
@@ -197,10 +216,11 @@ def run_ClementsBekkers(pars:dataclass=None, bigevent:bool=False, plot:bool=Fals
             sign=pars.sign,
         )
         cb._make_template()
+        cb.set_cb_engine(extra)
         cb.cbTemplateMatch(testpscn, threshold=pars.threshold, lpf=pars.LPF)
         print('# events in template: ', len(t_events))
     if plot:
-        cb.plots(title="Clements Bekkers")
+        cb.plots(title=f"Clements Bekkers using {extra:s}", testmode=True)
     return cb
 
 
@@ -241,18 +261,21 @@ def run_AndradeJonas(pars:dataclass=None, bigevent:bool=False, plot: bool = Fals
         
     if plot:
         aj.summarize(aj.data)
-        aj.plots(events=None, title="AJ")  # i_events)
+        aj.plots(events=None, title="AJ", testmode=True)  # i_events)
     return aj
 
 class MiniTestMethods():
-    def __init__(self, method:str='cb', plot:bool=False):
+    def __init__(self, method:str='cb', sign=1, extra='numba', plot:bool=False):
         self.plot = plot
         self.testmethod = method
+        self.extra = extra
+        self.sign = sign
 
     def run_test(self):
 
         pars = EventParameters()
         pars.LPF=1500
+        pars.sign = self.sign
 
         if self.testmethod in ["ZC", "zc"]:
             pars.threshold=0.9
@@ -266,7 +289,7 @@ class MiniTestMethods():
                     mpl.plot(zct, result.allevents[a])
                 mpl.show()
         if self.testmethod in ["CB", "cb"]:
-            result = run_ClementsBekkers(pars, plot=True)
+            result = run_ClementsBekkers(pars, extra=self.extra, plot=True)
             print(len(result.allevents))
             if self.plot:
                 for a in range(len(result.allevents)):
@@ -302,17 +325,26 @@ class MiniTestMethods():
         return testresult 
 
 class MinisTester(UserTester):
-    def __init__(self, method):
+    def __init__(self, method, sign=1, extra='python'):
         self.TM = None
         self.figure = None
-        UserTester.__init__(self, "%s" % method, method)
+        self.extra = extra
+        self.sign = sign
+        if sign == 1:
+            signstr='positive'
+        elif sign == -1:
+            signstr='negative'
+        else:
+            assert(sign in [-1, 1])
+        UserTester.__init__(self, "%s_%s" % (method, signstr), method)
+        # UserTester.__init__(self, "%s_%s" % (method, extra), method)  # if you want to store different results by the "extra" parameter
 
             
     def run_test(self, method):
 
         info = {}
         
-        self.TM = MiniTestMethods(method=method)
+        self.TM = MiniTestMethods(method=method, sign=self.sign, extra=self.extra)
         test_result = self.TM.run_test()
 
         if 'figure' in list(test_result.keys()):
